@@ -1,0 +1,635 @@
+import { Button } from "@/components/ui/button";
+import { useCampaign } from "@/hooks/use-campaign";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { EmailPreviewModal } from "./email-preview-modal";
+import { Loader2, HelpCircle, AlertCircle, CheckCircle, Mail, Calendar, Clock } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { v4 as uuidv4 } from "uuid";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+
+// Define types for our email preview data
+interface EmailPreview {
+  subject: string;
+  body: string;
+  html?: string;
+  error?: string;
+}
+
+interface PreviewData {
+  userEmail?: string;
+  creatorName?: string;
+  contactCount?: number;
+  sampleRecipient?: string;
+}
+
+interface PreviewSendStepProps {
+  onBack: () => void;
+  onComplete: () => void;
+}
+
+export function PreviewSendStep({ onBack, onComplete }: PreviewSendStepProps) {
+  const { campaign } = useCampaign();
+  const [previewEmail, setPreviewEmail] = useState<any | null>(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [sendOption, setSendOption] = useState("send-now");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [sendTest, setSendTest] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
+  
+  // Get campaign preview data
+  const { data: previewData, isLoading } = useQuery({
+    queryKey: ['/api/campaigns/preview', campaign.contactListId, campaign.creatorId],
+    enabled: !!campaign.contactListId && !!campaign.creatorId,
+  });
+
+  // Get generated emails - use URL params instead of just queryKey for proper API calls
+  const { data: generatedEmails, isLoading: isLoadingEmails, error: emailsError } = useQuery({
+    queryKey: ['/api/emails/generated-preview', campaign.contactListId, campaign.creatorId, campaign.objective, campaign.tone, campaign.sequenceCount, campaign.emailAccountId],
+    enabled: !!campaign.contactListId && !!campaign.creatorId && !!campaign.objective && !!campaign.tone && !!campaign.sequenceCount && !!campaign.emailAccountId,
+    retry: 1, // Only retry once to avoid excessive API calls
+    retryDelay: 1000, // Wait 1 second before retrying
+    queryFn: async () => {
+      // Validate all required parameters are present
+      const missingParams = [];
+      if (!campaign.contactListId) missingParams.push("Contact list");
+      if (!campaign.creatorId) missingParams.push("Creator");
+      if (!campaign.objective) missingParams.push("Campaign objective");
+      if (!campaign.tone) missingParams.push("Email tone");
+      if (!campaign.sequenceCount) missingParams.push("Sequence count");
+      if (!campaign.emailAccountId) missingParams.push("Email account");
+      
+      if (missingParams.length > 0) {
+        const errorMessage = `Missing required parameters: ${missingParams.join(", ")}.`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+      
+      try {
+        // Build URL with proper encoding and null/undefined handling
+        const params = new URLSearchParams();
+        if (campaign.contactListId) params.append('contactListId', String(campaign.contactListId));
+        if (campaign.creatorId) params.append('creatorId', String(campaign.creatorId));
+        if (campaign.objective) params.append('objective', campaign.objective);
+        if (campaign.tone) params.append('tone', campaign.tone);
+        if (campaign.sequenceCount) params.append('sequenceCount', String(campaign.sequenceCount));
+        if (campaign.emailAccountId) params.append('emailAccountId', String(campaign.emailAccountId));
+        
+        const url = `/api/emails/generated-preview?${params.toString()}`;
+        
+        console.log("Requesting email preview with URL:", url);
+        const response = await fetch(url);
+        
+        // Try to parse the response as JSON first
+        let errorDetail;
+        try {
+          const responseData = await response.json();
+          // If the response is not OK but we got a JSON response, it might contain error details
+          if (!response.ok) {
+            errorDetail = responseData.message || responseData.error || JSON.stringify(responseData);
+            throw new Error(`Failed to generate email previews: ${errorDetail}`);
+          }
+          return responseData;
+        } catch (jsonError) {
+          // If JSON parsing fails, try to get the text response
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => "Unable to retrieve error details");
+            console.error("API Error Response:", errorText);
+            throw new Error(`Failed to generate email previews: ${response.status} ${response.statusText}. ${errorText}`);
+          }
+          throw jsonError; // Re-throw if it's a JSON parsing error with a successful response
+        }
+      } catch (error) {
+        console.error("Email preview generation failed:", error);
+        // Provide more helpful error messages for common issues
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        if (errorMessage.includes('OpenAI API')) {
+          throw new Error(`OpenAI API error: ${errorMessage}. Check API key and usage limits.`);
+        }
+        
+        if (errorMessage.includes('OPENAI_API_KEY_MISSING')) {
+          throw new Error(`OpenAI API key is missing. Please add your OpenAI API key to continue.`);
+        }
+        
+        throw new Error(`Email generation failed: ${errorMessage}`);
+      }
+      }
+    }
+  });
+  
+  // Enhanced debug log for email generation
+  console.log("Email generation query:", {
+    contactListId: campaign.contactListId,
+    creatorId: campaign.creatorId,
+    objective: campaign.objective,
+    tone: campaign.tone,
+    sequenceCount: campaign.sequenceCount,
+    emailAccountId: campaign.emailAccountId,
+    emailAccount: campaign.emailAccount,
+    result: generatedEmails,
+    enabled: !!campaign.contactListId && !!campaign.creatorId && !!campaign.objective && !!campaign.tone && !!campaign.sequenceCount && !!campaign.emailAccountId,
+    error: emailsError ? (emailsError instanceof Error ? emailsError.message : String(emailsError)) : null,
+    queryEnabled: !!campaign.contactListId && !!campaign.creatorId && !!campaign.objective && !!campaign.tone && !!campaign.sequenceCount && !!campaign.emailAccountId
+  });
+  
+  // Log the full campaign state for debugging
+  console.log("Current full campaign state in preview step:", campaign);
+
+  useEffect(() => {
+    // Set default scheduled date to tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setScheduledDate(tomorrow.toISOString().split('T')[0]);
+    
+    // Set default time to 9am
+    setScheduledTime('09:00');
+    
+    // Set default test email to current user email if available
+    if (previewData && typeof previewData === 'object' && 'userEmail' in previewData && previewData.userEmail) {
+      setTestEmail(String(previewData.userEmail));
+    }
+  }, [previewData]);
+
+  const handleLaunchCampaign = async () => {
+    setIsSubmitting(true);
+    
+    try {
+      // Ensure all required fields are present
+      if (!campaign.name || !campaign.objective || !campaign.tone || 
+          !campaign.sequenceCount || !campaign.interval || 
+          !campaign.contactListId || !campaign.creatorId) {
+        throw new Error("Missing required campaign fields");
+      }
+      
+      // Check for email account ID
+      if (!campaign.emailAccountId) {
+        console.warn("No email account ID found for campaign - this may cause sending to fail");
+      }
+      
+      // Validate test email if sendTest is true
+      if (sendTest && (!testEmail || !testEmail.includes('@'))) {
+        throw new Error("Please enter a valid test email address");
+      }
+      
+      // Prepare launch data with explicit field mapping
+      const launchData = {
+        name: campaign.name,
+        objective: campaign.objective,
+        customObjective: campaign.customObjective,
+        tone: campaign.tone,
+        sequenceCount: campaign.sequenceCount,
+        interval: campaign.interval,
+        contactListId: campaign.contactListId,
+        creatorId: campaign.creatorId,
+        // Include email account ID
+        emailAccountId: campaign.emailAccountId,
+        emailSequence: campaign.emailSequence,
+        status: sendOption === 'send-now' ? 'active' : 'scheduled',
+        startDate: sendOption === 'schedule' ? new Date(`${scheduledDate}T${scheduledTime}`) : new Date(),
+        sendTestFirst: sendTest,
+        testEmailAddress: sendTest ? testEmail : undefined,
+      };
+      
+      console.log("Launching campaign:", launchData);
+      
+      // Create campaign
+      const response = await apiRequest("POST", "/api/campaigns", launchData);
+      const newCampaign = await response.json();
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['/api/campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/campaigns/recent'] });
+      
+      toast({
+        title: "Campaign launched",
+        description: `Your campaign "${campaign.name}" has been ${sendOption === 'send-now' ? 'launched' : 'scheduled'} successfully.`,
+      });
+      
+      onComplete();
+    } catch (error) {
+      console.error("Campaign launch error:", error);
+      toast({
+        title: "Campaign launch failed",
+        description: (error as Error).message || "There was an error launching your campaign. Please ensure all required fields are completed.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openPreviewModal = (emailIndex: number) => {
+    if (generatedEmails && generatedEmails.length > emailIndex) {
+      setPreviewEmail(generatedEmails[emailIndex]);
+      setIsPreviewModalOpen(true);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="max-w-4xl">
+        <h2 className="text-lg font-semibold text-slate-900 mb-2">Preview and Send Your Campaign</h2>
+        <p className="text-sm text-slate-500 mb-6">Review your campaign details, check email previews, and choose how you want to send it.</p>
+        
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <>
+            <Card className="mb-8">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Campaign Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Campaign Name</p>
+                    <p className="text-sm font-medium text-slate-900">{campaign.name || "Untitled Campaign"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Creator</p>
+                    <p className="text-sm font-medium text-slate-900">
+                      {previewData && typeof previewData === 'object' && 'creatorName' in previewData 
+                        ? String(previewData.creatorName) 
+                        : "Unknown"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Total Recipients</p>
+                    <p className="text-sm font-medium text-slate-900">
+                      {previewData && typeof previewData === 'object' && 'contactCount' in previewData 
+                        ? Number(previewData.contactCount) 
+                        : 0} contacts
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Objective</p>
+                    <p className="text-sm font-medium text-slate-900">{campaign.objective || "Not set"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Sequence</p>
+                    <p className="text-sm font-medium text-slate-900">{campaign.sequenceCount} emails, {campaign.interval} days apart</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Tone</p>
+                    <p className="text-sm font-medium text-slate-900">{campaign.tone || "Not set"}</p>
+                  </div>
+                </div>
+                
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                  <div className="flex items-center">
+                    <div className="flex-1">
+                      <p className="text-xs text-slate-500 mb-1">Sending From</p>
+                      <p className="text-sm font-medium text-slate-900">{campaign.emailAccount?.name} ({campaign.emailAccount?.email})</p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={onBack}
+                      className="text-xs"
+                    >
+                      Change
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-base font-medium text-slate-900 mb-2">Generated Email Preview</h3>
+                <p className="text-sm text-slate-500">Below are sample emails generated using OpenAI. We've selected a random recipient from your list to visualize how your emails will look.</p>
+              </div>
+              
+              {isLoadingEmails ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-4 border border-slate-200 rounded-lg bg-slate-50">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm text-slate-500">Generating personalized email previews...</p>
+                </div>
+              ) : generatedEmails && generatedEmails.length > 0 ? (
+                <div className="space-y-4">
+                  {generatedEmails.map((email, index) => (
+                    <div key={index} className="border rounded-lg overflow-hidden shadow-sm">
+                      <div className="bg-slate-50 px-4 py-3 border-b flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="bg-primary rounded-full p-1 flex items-center justify-center w-6 h-6 text-white text-xs font-medium">{index + 1}</span>
+                          <span className="text-sm font-medium text-slate-800">
+                            {index === 0 ? "Initial Contact" : index === campaign.sequenceCount - 1 ? "Final Outreach" : `Follow-up ${index}`}
+                            {index > 0 && <span className="text-xs text-slate-500 ml-2">+{campaign.interval} days</span>}
+                          </span>
+                        </div>
+                        <div>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="text-primary text-sm font-medium"
+                            onClick={() => openPreviewModal(index)}
+                          >
+                            View full email
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="p-5 bg-white">
+                        <div className="mb-4">
+                          <div className="flex items-center mb-2">
+                            <p className="text-xs uppercase tracking-wider font-medium text-slate-500 mr-2">Subject Line</p>
+                            <div className="flex-grow border-t border-slate-200"></div>
+                          </div>
+                          <p className="text-sm font-medium text-slate-900">{email.subject}</p>
+                        </div>
+                        <div>
+                          <div className="flex items-center mb-2">
+                            <p className="text-xs uppercase tracking-wider font-medium text-slate-500 mr-2">Email Preview</p>
+                            <div className="flex-grow border-t border-slate-200"></div>
+                          </div>
+                          <div className="text-sm text-slate-700 bg-slate-50 p-4 rounded-md border border-slate-200">
+                            {email.body.split('\n').slice(0, 4).map((line, i) => (
+                              <p key={i} className={i > 0 ? "mt-2" : ""}>{line}</p>
+                            ))}
+                            <div className="mt-3 pt-2 border-t border-slate-200 flex items-center">
+                              <p className="text-slate-400 text-xs">Preview shows first few lines only</p>
+                              <Button 
+                                variant="link" 
+                                className="text-primary text-xs ml-auto p-0 h-auto"
+                                onClick={() => openPreviewModal(index)}
+                              >
+                                View full email
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="text-center py-10 border border-slate-200 rounded-md bg-slate-50 px-4">
+                    <h3 className="text-slate-700 font-medium mb-4 text-lg">No email previews available</h3>
+                    <p className="text-sm text-slate-500 max-w-md mx-auto">Please try again or check your settings to ensure all required information is provided.</p>
+                  </div>
+                  
+                  <div className="bg-amber-50 border border-amber-200 rounded-md p-5">
+                    <h4 className="font-medium text-amber-800 mb-4 text-base">Debug Information</h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <div className="flex items-start">
+                          <span className="text-amber-800 font-medium mr-2">Contact List ID:</span>
+                          <span className="text-amber-700">{campaign.contactListId || 'Missing'}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-start">
+                          <span className="text-amber-800 font-medium mr-2">Creator ID:</span>
+                          <span className="text-amber-700">{campaign.creatorId || 'Missing'}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-start">
+                          <span className="text-amber-800 font-medium mr-2">Email Account ID:</span>
+                          <span className="text-amber-700">{campaign.emailAccountId || 'Missing'}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-start">
+                          <span className="text-amber-800 font-medium mr-2">Campaign Name:</span>
+                          <span className="text-amber-700">{campaign.name || 'Missing'}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-start">
+                          <span className="text-amber-800 font-medium mr-2">Objective:</span>
+                          <span className={campaign.objective ? 'text-slate-700' : 'text-amber-700'}>
+                            {campaign.objective || 'Missing'}
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-start">
+                          <span className="text-amber-800 font-medium mr-2">Tone:</span>
+                          <span className={campaign.tone ? 'text-slate-700' : 'text-amber-700'}>
+                            {campaign.tone || 'Missing'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {emailsError && (
+                      <div className="mt-4 p-3 bg-amber-100 rounded border border-amber-300 text-sm text-amber-800">
+                        <strong>Error:</strong> {(emailsError as Error).message || 'Unknown error'}
+                      </div>
+                    )}
+                    
+                    <div className="mt-4 pt-3 border-t border-amber-200">
+                      <p className="text-sm text-amber-800 mb-3">If all fields appear correctly, there may be an issue with the OpenAI API connection.</p>
+                      <div className="flex justify-end">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="bg-white hover:bg-amber-50 border-amber-300 text-amber-800"
+                          onClick={() => window.location.reload()}
+                        >
+                          Refresh Page
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-5">
+                    <h4 className="font-medium text-blue-800 mb-4 text-base">Troubleshooting Tips</h4>
+                    <ul className="space-y-3 text-blue-700">
+                      <li className="flex items-start">
+                        <span className="text-blue-500 text-lg mr-2">•</span>
+                        <span>Go back to the previous steps and ensure all information is entered correctly</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="text-blue-500 text-lg mr-2">•</span>
+                        <span>Check that the campaign has a valid email account associated with it</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="text-blue-500 text-lg mr-2">•</span>
+                        <span>Verify that your contact list contains valid contact information</span>
+                      </li>
+                      <li className="flex items-start">
+                        <span className="text-blue-500 text-lg mr-2">•</span>
+                        <span>Make sure your OpenAI API key is valid and has sufficient credits</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <Card className="mt-8">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Sending Options</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RadioGroup value={sendOption} onValueChange={setSendOption} className="space-y-4">
+                  <div className="flex items-start space-x-4 p-3 rounded-md border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center h-5">
+                      <RadioGroupItem value="send-now" id="send-now" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center">
+                        <Label htmlFor="send-now" className="font-medium text-sm text-slate-800">Send immediately</Label>
+                        <Mail className="h-4 w-4 text-slate-400 ml-2" />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">First email will be sent right after you launch the campaign.</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start space-x-4 p-3 rounded-md border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center h-5">
+                      <RadioGroupItem value="schedule" id="schedule" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center">
+                        <Label htmlFor="schedule" className="font-medium text-sm text-slate-800">Schedule for later</Label>
+                        <Calendar className="h-4 w-4 text-slate-400 ml-2" />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">Choose a specific date and time to send the first email.</p>
+                      
+                      {sendOption === "schedule" && (
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          <div>
+                            <Label htmlFor="scheduled-date" className="text-xs">Date</Label>
+                            <Input 
+                              id="scheduled-date" 
+                              type="date" 
+                              value={scheduledDate}
+                              onChange={(e) => setScheduledDate(e.target.value)}
+                              min={new Date().toISOString().split('T')[0]}
+                              className="mt-1 h-9 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="scheduled-time" className="text-xs">Time</Label>
+                            <Input 
+                              id="scheduled-time" 
+                              type="time" 
+                              value={scheduledTime}
+                              onChange={(e) => setScheduledTime(e.target.value)}
+                              className="mt-1 h-9 text-sm"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </RadioGroup>
+                
+                <div className="mt-6 border-t border-slate-200 pt-4">
+                  <div className="flex items-start space-x-3">
+                    <Checkbox 
+                      id="send-test" 
+                      checked={sendTest}
+                      onCheckedChange={(checked) => setSendTest(!!checked)}
+                    />
+                    <div className="space-y-1">
+                      <Label 
+                        htmlFor="send-test" 
+                        className="text-sm font-medium text-slate-800 cursor-pointer"
+                      >
+                        Send a test email first
+                      </Label>
+                      <p className="text-xs text-slate-500">A test email will be sent to you before the campaign begins.</p>
+                      
+                      {sendTest && (
+                        <div className="mt-2">
+                          <Label htmlFor="test-email" className="text-xs">Test email address</Label>
+                          <Input 
+                            id="test-email" 
+                            type="email" 
+                            placeholder="you@example.com"
+                            value={testEmail}
+                            onChange={(e) => setTestEmail(e.target.value)}
+                            className="mt-1 h-9 text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <div className="flex justify-between mt-8">
+              <Button
+                variant="outline"
+                onClick={onBack}
+                disabled={isSubmitting}
+              >
+                Back
+              </Button>
+              <div className="flex space-x-3">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button 
+                          variant="default" 
+                          onClick={handleLaunchCampaign}
+                          disabled={
+                            isSubmitting || 
+                            isLoadingEmails || 
+                            (generatedEmails && generatedEmails.length === 0) || 
+                            (!campaign.contactListId || !campaign.creatorId || !campaign.emailAccountId)
+                          }
+                          className="min-w-[160px]"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Launching...
+                            </>
+                          ) : (
+                            <>
+                              {sendOption === 'schedule' ? 'Schedule Campaign' : 'Launch Campaign'}
+                            </>
+                          )}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {(!campaign.contactListId || !campaign.creatorId || !campaign.emailAccountId) ? (
+                        <p>Missing required campaign details. Please go back and complete all steps.</p>
+                      ) : (generatedEmails && generatedEmails.length === 0) ? (
+                        <p>Email preview generation is required before launching.</p>
+                      ) : (
+                        <p>{sendOption === 'schedule' ? 'Schedule this campaign to send at your selected date and time.' : 'Launch this campaign immediately.'}</p>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+      
+      {previewEmail && (
+        <EmailPreviewModal
+          isOpen={isPreviewModalOpen}
+          onClose={() => setIsPreviewModalOpen(false)}
+          email={previewEmail}
+          recipientName={previewData?.sampleRecipient?.firstName || "Recipient"}
+          senderName={previewData?.creatorName || "Sender"}
+        />
+      )}
+    </div>
+  );
+}
