@@ -1,4 +1,4 @@
-# Xtend Outreach Platform
+# Xtend Creators - O.S.
 
 A cutting-edge SaaS platform revolutionizing creator video inventory management through intelligent marketing and collaboration technologies, with enhanced AI-driven research and proposal generation capabilities.
 
@@ -12,8 +12,7 @@ A cutting-edge SaaS platform revolutionizing creator video inventory management 
 - Enhanced cross-device authentication
 - Proposal generation and landing page publishing
 - Intelligent company research system
-- Gmail App Password support for secure email integration
-- Advanced email deliverability tracking
+- Advanced analytics and reporting
 - Sales pipeline with company information management
 
 ## Getting Started
@@ -35,14 +34,6 @@ OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 ```
 
-### Email Configuration
-
-For email functionality:
-
-1. Go to Email Accounts section in the platform
-2. Add your SMTP email accounts
-3. For Gmail accounts with 2FA, follow the App Password setup guide
-
 ## Development
 
 - Run `npm run dev` to start the development server
@@ -51,13 +42,12 @@ For email functionality:
 
 ## Key Features
 
-### Email Outreach
+### Video Inventory Management
 
-- Manage email sender accounts with Gmail App Password support
-- Create and manage contact lists
-- Design multi-step email campaigns with personalized templates
-- Schedule emails with optimal sending times
-- Track email deliverability and engagement metrics
+- Organize and manage video content efficiently
+- Track video performance metrics
+- Schedule and plan content releases
+- Manage collaborations and partnerships
 
 ### Proposal Generation
 
@@ -79,7 +69,7 @@ For email functionality:
 
 - Utilize OpenAI and Anthropic models for content generation
 - AI-assisted company research
-- Intelligent email content suggestions
+- Intelligent content suggestions
 - Creator relationship management with AI insights
 - Sentiment analysis for communication optimization
 

@@ -18,12 +18,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Project info
-const PROJECT_NAME = "xtend-outreach-platform";
+const PROJECT_NAME = "xtend-creators";
 const MAIN_BRANCH = "main";
 
 // Git configuration helpers
 async function createGitReadme() {
-  const readmeContent = `# Xtend Outreach Platform
+  const readmeContent = `# Xtend Creators - O.S.
 
 A cutting-edge SaaS platform revolutionizing creator video inventory management through intelligent marketing and collaboration technologies, with enhanced AI-driven research and proposal generation capabilities.
 
@@ -37,8 +37,7 @@ A cutting-edge SaaS platform revolutionizing creator video inventory management 
 - Enhanced cross-device authentication
 - Proposal generation and landing page publishing
 - Intelligent company research system
-- Gmail App Password support for secure email integration
-- Advanced email deliverability tracking
+- Advanced analytics and reporting
 - Sales pipeline with company information management
 
 ## Getting Started
@@ -60,24 +59,9 @@ OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 \`\`\`
 
-### Email Configuration
-
-For email functionality:
-
-1. Go to Email Accounts section in the platform
-2. Add your SMTP email accounts
-3. For Gmail accounts with 2FA, follow the App Password setup guide
-
-## Development
-
-- Run \`npm run dev\` to start the development server
-- Run \`npm run db:push\` to update the database schema
-- Run \`npm run build\` to build for production
-
 ## License
 
-All rights reserved. This project is proprietary and confidential.
-`;
+All rights reserved. This project is proprietary and confidential.`;
 
   fs.writeFileSync('README.md', readmeContent);
   console.log('✅ Created README.md file for Git repository');
@@ -86,7 +70,7 @@ All rights reserved. This project is proprietary and confidential.
 async function displaySetupInstructions() {
   console.log(`
 ============================================================
-     GIT VERSION CONTROL SETUP FOR XTEND PLATFORM
+     GIT VERSION CONTROL SETUP FOR XTEND CREATORS
 ============================================================
 
 Follow these steps to set up Git version control for your project:
@@ -101,7 +85,7 @@ Follow these steps to set up Git version control for your project:
    
    $ mkdir ~/projects/${PROJECT_NAME}
    $ cd ~/projects/${PROJECT_NAME}
-   $ unzip path/to/xtend-outreach-platform.zip
+   $ unzip path/to/xtend-creators.zip
 
 3️⃣ INITIALIZE GIT REPOSITORY
    Navigate to your project directory and run:

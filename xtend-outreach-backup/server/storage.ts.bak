@@ -1,0 +1,2171 @@
+import { 
+  users, type User, type InsertUser,
+  creators, type Creator, type InsertCreator,
+  contacts, type Contact, type InsertContact,
+  contactLists, type ContactList, type InsertContactList,
+  contactListEntries, type ContactListEntry, type InsertContactListEntry,
+  campaigns, type Campaign, type InsertCampaign,
+  emails, type Email, type InsertEmail,
+  emailAccounts, type EmailAccount, type InsertEmailAccount,
+  creatorEmailAccounts, type CreatorEmailAccount, type InsertCreatorEmailAccount,
+  emailTemplates, type DbEmailTemplate, type InsertEmailTemplate,
+  outreachLogs, type OutreachLog, type InsertOutreachLog,
+  contactNotes, type ContactNote, type InsertContactNote,
+  shareableLandingPages, type ShareableLandingPage, type InsertShareableLandingPage
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, sql, inArray, and } from "drizzle-orm";
+
+export interface ContactFilterParams {
+  status?: string;
+  tags?: string[];
+  createdAfter?: Date;
+  createdBefore?: Date;
+  lastContactedAfter?: Date;
+  lastContactedBefore?: Date;
+  country?: string;
+  industry?: string;
+  search?: string;
+  includeArchived?: boolean;
+}
+
+export interface IStorage {
+  // User operations
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, userData: Partial<User>): Promise<User>;
+  getFirstUser(): Promise<User | undefined>; // Helper for demo purposes
+  
+  // Creator operations
+  getCreator(id: number): Promise<Creator | undefined>;
+  createCreator(creator: InsertCreator): Promise<Creator>;
+  updateCreator(id: number, creatorData: Partial<Creator>): Promise<Creator>;
+  deleteCreator(id: number): Promise<boolean>;
+  getAllCreators(): Promise<Creator[]>;
+  
+  // Contact operations
+  getContact(id: number): Promise<Contact | undefined>;
+  createContact(contact: InsertContact): Promise<Contact>;
+  updateContact(id: number, contactData: Partial<Contact>): Promise<Contact>;
+  deleteContact(id: number): Promise<boolean>;
+  archiveContact(id: number): Promise<Contact>;
+  restoreContact(id: number): Promise<Contact>;
+  getAllContacts(): Promise<Contact[]>;
+  searchContacts(query: string): Promise<Contact[]>;
+  getFilteredContacts(filter: ContactFilterParams): Promise<Contact[]>;
+  
+  // Contact List operations
+  getContactList(id: number): Promise<ContactList | undefined>;
+  createContactList(contactList: InsertContactList): Promise<ContactList>;
+  getAllContactLists(): Promise<ContactList[]>;
+  addContactToList(listId: number, contactId: number): Promise<ContactListEntry>;
+  getContactsInList(listId: number): Promise<Contact[]>;
+  
+  // Campaign operations
+  getCampaign(id: number): Promise<Campaign | undefined>;
+  createCampaign(campaign: InsertCampaign): Promise<Campaign>;
+  updateCampaign(id: number, campaignData: Partial<Campaign>): Promise<Campaign>;
+  deleteCampaign(id: number): Promise<boolean>;
+  getAllCampaigns(): Promise<Campaign[]>;
+  getRecentCampaigns(limit: number): Promise<Campaign[]>;
+  
+  // Email Account operations
+  getEmailAccount(id: number): Promise<EmailAccount | undefined>;
+  createEmailAccount(emailAccount: InsertEmailAccount): Promise<EmailAccount>;
+  updateEmailAccount(id: number, emailAccountData: Partial<EmailAccount>): Promise<EmailAccount>;
+  deleteEmailAccount(id: number): Promise<boolean>;
+  getAllEmailAccounts(): Promise<EmailAccount[]>;
+  
+  // Creator-Email Account associations
+  linkCreatorToEmailAccount(association: InsertCreatorEmailAccount): Promise<CreatorEmailAccount>;
+  getCreatorEmailAccounts(creatorId: number): Promise<EmailAccount[]>;
+  getPrimaryEmailAccountForCreator(creatorId: number): Promise<EmailAccount | undefined>;
+  getCreatorEmailAccountAssociations(): Promise<CreatorEmailAccount[]>;
+  deleteCreatorEmailAccount(id: number): Promise<boolean>;
+  
+  // Email operations
+  createEmail(email: InsertEmail): Promise<Email>;
+  getEmail(id: number): Promise<Email | undefined>;
+  updateEmail(id: number, emailData: Partial<Email>): Promise<Email>;
+  deleteEmail(id: number): Promise<boolean>;
+  getEmailsByCampaign(campaignId: number): Promise<Email[]>;
+  getAllEmails(): Promise<Email[]>;
+  
+  // Email Template operations
+  getEmailTemplate(id: number): Promise<DbEmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<DbEmailTemplate>;
+  updateEmailTemplate(id: number, templateData: Partial<DbEmailTemplate>): Promise<DbEmailTemplate>;
+  deleteEmailTemplate(id: number): Promise<boolean>;
+  getAllEmailTemplates(): Promise<DbEmailTemplate[]>;
+  getEmailTemplatesByCreator(creatorId: number): Promise<DbEmailTemplate[]>;
+  getSystemEmailTemplates(): Promise<DbEmailTemplate[]>;
+  
+  // Outreach Log operations
+  createOutreachLog(log: InsertOutreachLog): Promise<OutreachLog>;
+  getOutreachLog(id: number): Promise<OutreachLog | undefined>;
+  getOutreachLogsByContactId(contactId: number): Promise<OutreachLog[]>;
+  getOutreachLogsByDateRange(startDate: Date, endDate: Date): Promise<OutreachLog[]>;
+  getAllOutreachLogs(): Promise<OutreachLog[]>;
+  
+  // Contact Note operations
+  createContactNote(note: InsertContactNote): Promise<ContactNote>;
+  getContactNote(id: number): Promise<ContactNote | undefined>;
+  getContactNotes(contactId: number): Promise<ContactNote[]>;
+  getContactNotesByContactId(contactId: number): Promise<ContactNote[]>;
+  
+  // Shareable Landing Page operations
+  createShareableLandingPage(page: InsertShareableLandingPage): Promise<ShareableLandingPage>;
+  getShareableLandingPage(id: number): Promise<ShareableLandingPage | undefined>;
+  getShareableLandingPageByUniqueId(uniqueId: string): Promise<ShareableLandingPage | undefined>;
+  updateShareableLandingPage(id: number, pageData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage>;
+  deleteShareableLandingPage(id: number): Promise<boolean>;
+  getAllShareableLandingPages(): Promise<ShareableLandingPage[]>;
+  getUserShareableLandingPages(userId: number): Promise<ShareableLandingPage[]>;
+  getCreatorShareableLandingPages(creatorId: number): Promise<ShareableLandingPage[]>;
+  incrementShareableLandingPageViewCount(id: number): Promise<ShareableLandingPage>;
+}
+
+export class MemStorage implements IStorage {
+  private users: Map<number, User>;
+  private creators: Map<number, Creator>;
+  private contacts: Map<number, Contact>;
+  private contactLists: Map<number, ContactList>;
+  private contactListEntries: Map<number, ContactListEntry>;
+  private campaigns: Map<number, Campaign>;
+  private emails: Map<number, Email>;
+  private emailAccounts: Map<number, EmailAccount>;
+  private creatorEmailAccounts: Map<number, CreatorEmailAccount>;
+  private emailTemplates: Map<number, DbEmailTemplate>;
+  private outreachLogs: Map<number, OutreachLog>;
+  private contactNotes: Map<number, ContactNote>;
+  private shareableLandingPages: Map<number, ShareableLandingPage>;
+  
+  private userId: number = 1;
+  private creatorId: number = 1;
+  private contactId: number = 1;
+  private contactListId: number = 1;
+  private contactListEntryId: number = 1;
+  private campaignId: number = 1;
+  private emailId: number = 1;
+  private emailAccountId: number = 1;
+  private creatorEmailAccountId: number = 1;
+  private emailTemplateId: number = 1;
+  private outreachLogId: number = 1;
+  private contactNoteId: number = 1;
+  private shareableLandingPageId: number = 1;
+
+  constructor() {
+    this.users = new Map();
+    this.creators = new Map();
+    this.contacts = new Map();
+    this.contactLists = new Map();
+    this.contactListEntries = new Map();
+    this.campaigns = new Map();
+    this.emails = new Map();
+    this.emailAccounts = new Map();
+    this.creatorEmailAccounts = new Map();
+    this.emailTemplates = new Map();
+    this.outreachLogs = new Map();
+    this.contactNotes = new Map();
+    this.shareableLandingPages = new Map();
+    
+    // Initialize with sample data for development
+    this.initSampleData();
+  }
+
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.username === username
+    );
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = this.userId++;
+    const createdAt = new Date();
+    const user: User = { ...insertUser, id, createdAt };
+    this.users.set(id, user);
+    return user;
+  }
+
+  async updateUser(id: number, userData: Partial<User>): Promise<User> {
+    const user = await this.getUser(id);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    const updatedUser = { ...user, ...userData };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  async getFirstUser(): Promise<User | undefined> {
+    if (this.users.size > 0) {
+      return this.users.values().next().value;
+    }
+    return undefined;
+  }
+
+  // Creator operations
+  async getCreator(id: number): Promise<Creator | undefined> {
+    return this.creators.get(id);
+  }
+
+  async createCreator(insertCreator: InsertCreator): Promise<Creator> {
+    const id = this.creatorId++;
+    const lastUpdated = new Date();
+    const creator: Creator = { ...insertCreator, id, lastUpdated };
+    this.creators.set(id, creator);
+    return creator;
+  }
+
+  async updateCreator(id: number, creatorData: Partial<Creator>): Promise<Creator> {
+    const creator = await this.getCreator(id);
+    if (!creator) {
+      throw new Error("Creator not found");
+    }
+    
+    // Update the last updated timestamp
+    const lastUpdated = new Date();
+    const updatedCreator = { ...creator, ...creatorData, lastUpdated };
+    this.creators.set(id, updatedCreator);
+    return updatedCreator;
+  }
+
+  async deleteCreator(id: number): Promise<boolean> {
+    const creator = await this.getCreator(id);
+    if (!creator) {
+      return false; // Creator not found to delete
+    }
+    
+    // Delete the creator from the collection
+    return this.creators.delete(id);
+  }
+  
+  async getAllCreators(): Promise<Creator[]> {
+    return Array.from(this.creators.values());
+  }
+
+  // Contact operations
+  async getContact(id: number): Promise<Contact | undefined> {
+    return this.contacts.get(id);
+  }
+
+  async createContact(insertContact: InsertContact): Promise<Contact> {
+    const id = this.contactId++;
+    const now = new Date();
+    // Set default values for new fields
+    const contact: Contact = { 
+      ...insertContact, 
+      id,
+      createdAt: now,
+      updatedAt: now,
+      status: insertContact.status || 'active',
+      tags: insertContact.tags || [],
+      archivedAt: null,
+    };
+    this.contacts.set(id, contact);
+    return contact;
+  }
+
+  async updateContact(id: number, contactData: Partial<Contact>): Promise<Contact> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    
+    // Always update the updatedAt timestamp
+    const updatedContact = { 
+      ...contact, 
+      ...contactData, 
+      updatedAt: new Date() 
+    };
+    this.contacts.set(id, updatedContact);
+    return updatedContact;
+  }
+
+  async deleteContact(id: number): Promise<boolean> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      return false; // Contact not found to delete
+    }
+    
+    // Delete the contact from the collection
+    return this.contacts.delete(id);
+  }
+
+  async archiveContact(id: number): Promise<Contact> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    
+    // Set archive timestamp and update status
+    const archivedContact = { 
+      ...contact, 
+      archivedAt: new Date(),
+      status: 'archived',
+      updatedAt: new Date()
+    };
+    this.contacts.set(id, archivedContact);
+    return archivedContact;
+  }
+
+  async restoreContact(id: number): Promise<Contact> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    
+    // Clear archived timestamp and set status back to active
+    const restoredContact = { 
+      ...contact, 
+      archivedAt: null,
+      status: 'active',
+      updatedAt: new Date()
+    };
+    this.contacts.set(id, restoredContact);
+    return restoredContact;
+  }
+
+  async getAllContacts(): Promise<Contact[]> {
+    // By default, only return non-archived contacts
+    return Array.from(this.contacts.values())
+      .filter(contact => !contact.archivedAt);
+  }
+  
+  async searchContacts(query: string): Promise<Contact[]> {
+    if (!query || query.trim() === '') {
+      return this.getAllContacts();
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    return Array.from(this.contacts.values())
+      .filter(contact => {
+        // Only include non-archived contacts by default
+        if (contact.archivedAt) return false;
+        
+        // Search in common fields
+        return (
+          (contact.firstName && contact.firstName.toLowerCase().includes(lowerQuery)) ||
+          (contact.lastName && contact.lastName.toLowerCase().includes(lowerQuery)) ||
+          (contact.email && contact.email.toLowerCase().includes(lowerQuery)) ||
+          (contact.company && contact.company.toLowerCase().includes(lowerQuery)) ||
+          (contact.role && contact.role.toLowerCase().includes(lowerQuery)) ||
+          (contact.industry && contact.industry.toLowerCase().includes(lowerQuery)) ||
+          (contact.country && contact.country.toLowerCase().includes(lowerQuery)) ||
+          (contact.notes && contact.notes.toLowerCase().includes(lowerQuery))
+        );
+      });
+  }
+  
+  async getFilteredContacts(filter: ContactFilterParams): Promise<Contact[]> {
+    return Array.from(this.contacts.values())
+      .filter(contact => {
+        // Handle archived filter
+        if (!filter.includeArchived && contact.archivedAt) {
+          return false;
+        }
+        
+        // Filter by status if specified
+        if (filter.status && contact.status !== filter.status) {
+          return false;
+        }
+        
+        // Filter by tags if specified
+        if (filter.tags && filter.tags.length > 0) {
+          // If contact has no tags or none of the filter tags match
+          if (!contact.tags || !contact.tags.some(tag => filter.tags!.includes(tag))) {
+            return false;
+          }
+        }
+        
+        // Filter by country if specified
+        if (filter.country && contact.country !== filter.country) {
+          return false;
+        }
+        
+        // Filter by industry if specified
+        if (filter.industry && contact.industry !== filter.industry) {
+          return false;
+        }
+        
+        // Filter by creation date range if specified
+        if (filter.createdAfter && contact.createdAt && 
+            new Date(contact.createdAt) < new Date(filter.createdAfter)) {
+          return false;
+        }
+        
+        if (filter.createdBefore && contact.createdAt && 
+            new Date(contact.createdAt) > new Date(filter.createdBefore)) {
+          return false;
+        }
+        
+        // Filter by last contacted date range if specified
+        if (filter.lastContactedAfter && contact.lastContacted && 
+            new Date(contact.lastContacted) < new Date(filter.lastContactedAfter)) {
+          return false;
+        }
+        
+        if (filter.lastContactedBefore && contact.lastContacted && 
+            new Date(contact.lastContacted) > new Date(filter.lastContactedBefore)) {
+          return false;
+        }
+        
+        // Apply text search if specified
+        if (filter.search && filter.search.trim() !== '') {
+          const searchLower = filter.search.toLowerCase();
+          const searchMatch = 
+            (contact.firstName && contact.firstName.toLowerCase().includes(searchLower)) ||
+            (contact.lastName && contact.lastName.toLowerCase().includes(searchLower)) ||
+            (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
+            (contact.company && contact.company.toLowerCase().includes(searchLower)) ||
+            (contact.role && contact.role.toLowerCase().includes(searchLower)) ||
+            (contact.notes && contact.notes.toLowerCase().includes(searchLower));
+            
+          if (!searchMatch) {
+            return false;
+          }
+        }
+        
+        // If passed all filters, include the contact
+        return true;
+      });
+  }
+
+  // Contact List operations
+  async getContactList(id: number): Promise<ContactList | undefined> {
+    return this.contactLists.get(id);
+  }
+
+  async createContactList(insertContactList: InsertContactList): Promise<ContactList> {
+    const id = this.contactListId++;
+    const createdAt = new Date();
+    const contactList: ContactList = { ...insertContactList, id, createdAt };
+    this.contactLists.set(id, contactList);
+    return contactList;
+  }
+
+  async getAllContactLists(): Promise<ContactList[]> {
+    return Array.from(this.contactLists.values());
+  }
+
+  async addContactToList(listId: number, contactId: number): Promise<ContactListEntry> {
+    const id = this.contactListEntryId++;
+    const entry: ContactListEntry = { id, contactListId: listId, contactId };
+    this.contactListEntries.set(id, entry);
+    return entry;
+  }
+
+  async getContactsInList(listId: number): Promise<Contact[]> {
+    const entries = Array.from(this.contactListEntries.values()).filter(
+      (entry) => entry.contactListId === listId
+    );
+    
+    const contacts = [];
+    for (const entry of entries) {
+      const contact = await this.getContact(entry.contactId);
+      if (contact) {
+        contacts.push(contact);
+      }
+    }
+    
+    return contacts;
+  }
+
+  // Campaign operations
+  async getCampaign(id: number): Promise<Campaign | undefined> {
+    return this.campaigns.get(id);
+  }
+
+  async createCampaign(insertCampaign: InsertCampaign): Promise<Campaign> {
+    const id = this.campaignId++;
+    const createdAt = new Date();
+    const campaign: Campaign = { 
+      ...insertCampaign, 
+      id,
+      createdAt, 
+      progress: 0,
+      openRate: null,
+      responseRate: null,
+      // Adding required fields with defaults if not provided
+      smartleadLastSync: null,
+      smartleadCampaignId: insertCampaign.smartleadCampaignId || null,
+      smartleadStatus: insertCampaign.smartleadStatus || null,
+      smartleadProvider: insertCampaign.smartleadProvider || "direct",
+      emailSequence: insertCampaign.emailSequence || []
+    };
+    this.campaigns.set(id, campaign);
+    return campaign;
+  }
+
+  async updateCampaign(id: number, campaignData: Partial<Campaign>): Promise<Campaign> {
+    const campaign = await this.getCampaign(id);
+    if (!campaign) {
+      throw new Error("Campaign not found");
+    }
+    
+    const updatedCampaign = { ...campaign, ...campaignData };
+    this.campaigns.set(id, updatedCampaign);
+    return updatedCampaign;
+  }
+
+  async deleteCampaign(id: number): Promise<boolean> {
+    const campaign = await this.getCampaign(id);
+    if (!campaign) {
+      return false; // Campaign not found to delete
+    }
+    
+    // Delete the campaign from the collection
+    return this.campaigns.delete(id);
+  }
+
+  async getAllCampaigns(): Promise<Campaign[]> {
+    return Array.from(this.campaigns.values());
+  }
+
+  async getRecentCampaigns(limit: number): Promise<Campaign[]> {
+    // Sort by creation date descending
+    const sorted = Array.from(this.campaigns.values()).sort(
+      (a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+    );
+    
+    return sorted.slice(0, limit);
+  }
+
+  // Email operations
+  async createEmail(insertEmail: InsertEmail): Promise<Email> {
+    const id = this.emailId++;
+    const email: Email = { ...insertEmail, id };
+    this.emails.set(id, email);
+    return email;
+  }
+
+  async getEmail(id: number): Promise<Email | undefined> {
+    return this.emails.get(id);
+  }
+
+  async updateEmail(id: number, emailData: Partial<Email>): Promise<Email> {
+    const email = await this.getEmail(id);
+    if (!email) {
+      throw new Error("Email not found");
+    }
+    
+    const updatedEmail = { ...email, ...emailData };
+    this.emails.set(id, updatedEmail);
+    return updatedEmail;
+  }
+
+  async getEmailsByCampaign(campaignId: number): Promise<Email[]> {
+    return Array.from(this.emails.values()).filter(
+      (email) => email.campaignId === campaignId
+    );
+  }
+
+  async getAllEmails(): Promise<Email[]> {
+    return Array.from(this.emails.values());
+  }
+
+  // Email Template operations
+  async getEmailTemplate(id: number): Promise<DbEmailTemplate | undefined> {
+    return this.emailTemplates.get(id);
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<DbEmailTemplate> {
+    const id = this.emailTemplateId++;
+    const now = new Date();
+    const emailTemplate: DbEmailTemplate = {
+      ...template,
+      id,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.emailTemplates.set(id, emailTemplate);
+    return emailTemplate;
+  }
+
+  async updateEmailTemplate(id: number, templateData: Partial<DbEmailTemplate>): Promise<DbEmailTemplate> {
+    const template = await this.getEmailTemplate(id);
+    if (!template) {
+      throw new Error("Email template not found");
+    }
+    
+    // Always update updatedAt timestamp
+    const updatedTemplate = {
+      ...template,
+      ...templateData,
+      updatedAt: new Date()
+    };
+    this.emailTemplates.set(id, updatedTemplate);
+    return updatedTemplate;
+  }
+
+  async deleteEmailTemplate(id: number): Promise<boolean> {
+    const template = await this.getEmailTemplate(id);
+    if (!template) {
+      return false;
+    }
+    
+    return this.emailTemplates.delete(id);
+  }
+
+  async getAllEmailTemplates(): Promise<DbEmailTemplate[]> {
+    return Array.from(this.emailTemplates.values());
+  }
+
+  async getEmailTemplatesByCreator(creatorId: number): Promise<DbEmailTemplate[]> {
+    return Array.from(this.emailTemplates.values())
+      .filter(template => template.creatorId === creatorId);
+  }
+
+  async getSystemEmailTemplates(): Promise<DbEmailTemplate[]> {
+    return Array.from(this.emailTemplates.values())
+      .filter(template => template.isSystem === true);
+  }
+  
+  // Outreach Log operations
+  async createOutreachLog(log: InsertOutreachLog): Promise<OutreachLog> {
+    const id = this.outreachLogId++;
+    const outreachLog: OutreachLog = { 
+      ...log, 
+      id 
+    };
+    this.outreachLogs.set(id, outreachLog);
+    return outreachLog;
+  }
+
+  async getOutreachLog(id: number): Promise<OutreachLog | undefined> {
+    return this.outreachLogs.get(id);
+  }
+
+  async getOutreachLogsByContactId(contactId: number): Promise<OutreachLog[]> {
+    return Array.from(this.outreachLogs.values()).filter(
+      log => log.contactId === contactId
+    );
+  }
+
+  // Maintain backward compatibility
+  async getOutreachLogsByContact(contactId: number): Promise<OutreachLog[]> {
+    return this.getOutreachLogsByContactId(contactId);
+  }
+
+  async getOutreachLogsByDateRange(startDate: Date, endDate: Date): Promise<OutreachLog[]> {
+    return Array.from(this.outreachLogs.values()).filter(
+      log => {
+        const logDate = new Date(log.sentAt);
+        return logDate >= startDate && logDate <= endDate;
+      }
+    );
+  }
+  
+  async getAllOutreachLogs(): Promise<OutreachLog[]> {
+    return Array.from(this.outreachLogs.values());
+  }
+
+  // Contact Note operations
+  async createContactNote(note: InsertContactNote): Promise<ContactNote> {
+    const id = this.contactNoteId++;
+    const createdAt = new Date();
+    const contactNote: ContactNote = { 
+      ...note, 
+      id,
+      createdAt 
+    };
+    this.contactNotes.set(id, contactNote);
+    return contactNote;
+  }
+
+  async getContactNote(id: number): Promise<ContactNote | undefined> {
+    return this.contactNotes.get(id);
+  }
+
+  async getContactNotes(contactId: number): Promise<ContactNote[]> {
+    return Array.from(this.contactNotes.values())
+      .filter(note => note.contactId === contactId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // Sort by most recent first
+  }
+  
+  async getContactNotesByContactId(contactId: number): Promise<ContactNote[]> {
+    return this.getContactNotes(contactId);
+  }
+  
+  // Shareable Landing Page operations
+  async createShareableLandingPage(page: InsertShareableLandingPage): Promise<ShareableLandingPage> {
+    const id = this.shareableLandingPageId++;
+    const now = new Date();
+    
+    // Generate a unique ID if one wasn't provided
+    const uniqueId = page.uniqueId || 
+      `page_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString(36)}`;
+    
+    const landingPage: ShareableLandingPage = {
+      ...page,
+      id,
+      uniqueId,
+      createdAt: now,
+      updatedAt: now,
+      viewCount: 0,
+    };
+    
+    this.shareableLandingPages.set(id, landingPage);
+    return landingPage;
+  }
+  
+  async getShareableLandingPage(id: number): Promise<ShareableLandingPage | undefined> {
+    return this.shareableLandingPages.get(id);
+  }
+  
+  async getShareableLandingPageByUniqueId(uniqueId: string): Promise<ShareableLandingPage | undefined> {
+    return Array.from(this.shareableLandingPages.values())
+      .find(page => page.uniqueId === uniqueId);
+  }
+  
+  async updateShareableLandingPage(id: number, pageData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage> {
+    const page = await this.getShareableLandingPage(id);
+    if (!page) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    const updatedPage = {
+      ...page,
+      ...pageData,
+      updatedAt: new Date(),
+    };
+    
+    this.shareableLandingPages.set(id, updatedPage);
+    return updatedPage;
+  }
+  
+  async deleteShareableLandingPage(id: number): Promise<boolean> {
+    const page = await this.getShareableLandingPage(id);
+    if (!page) {
+      return false;
+    }
+    
+    return this.shareableLandingPages.delete(id);
+  }
+  
+  async getAllShareableLandingPages(): Promise<ShareableLandingPage[]> {
+    return Array.from(this.shareableLandingPages.values());
+  }
+  
+  async getUserShareableLandingPages(userId: number): Promise<ShareableLandingPage[]> {
+    return Array.from(this.shareableLandingPages.values())
+      .filter(page => page.userId === userId);
+  }
+  
+  async getCreatorShareableLandingPages(creatorId: number): Promise<ShareableLandingPage[]> {
+    return Array.from(this.shareableLandingPages.values())
+      .filter(page => page.creatorId === creatorId);
+  }
+  
+  async incrementShareableLandingPageViewCount(id: number): Promise<ShareableLandingPage> {
+    const page = await this.getShareableLandingPage(id);
+    if (!page) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    const updatedPage = {
+      ...page,
+      viewCount: (page.viewCount || 0) + 1,
+      updatedAt: new Date(),
+    };
+    
+    this.shareableLandingPages.set(id, updatedPage);
+    return updatedPage;
+  }
+  
+  async deleteEmail(id: number): Promise<boolean> {
+    const email = await this.getEmail(id);
+    if (!email) {
+      return false; // Email not found to delete
+    }
+    
+    // Delete the email from the collection
+    return this.emails.delete(id);
+  }
+
+  // Email Account operations
+  async getEmailAccount(id: number): Promise<EmailAccount | undefined> {
+    return this.emailAccounts.get(id);
+  }
+
+  async createEmailAccount(insertEmailAccount: InsertEmailAccount): Promise<EmailAccount> {
+    const id = this.emailAccountId++;
+    const emailAccount: EmailAccount = { ...insertEmailAccount, id };
+    this.emailAccounts.set(id, emailAccount);
+    return emailAccount;
+  }
+
+  async updateEmailAccount(id: number, emailAccountData: Partial<EmailAccount>): Promise<EmailAccount> {
+    const emailAccount = await this.getEmailAccount(id);
+    if (!emailAccount) {
+      throw new Error("Email account not found");
+    }
+    
+    // Special handling for credentials - preserve them if not explicitly set
+    // SMTP password handling
+    if (emailAccountData.smtpPassword === undefined && emailAccount.smtpPassword) {
+      emailAccountData.smtpPassword = emailAccount.smtpPassword;
+    }
+    
+    // IMAP password handling
+    if (emailAccountData.imapPassword === undefined && emailAccount.imapPassword) {
+      emailAccountData.imapPassword = emailAccount.imapPassword;
+    }
+    
+    // Make sure required fields are preserved
+    if (!emailAccountData.status && emailAccount.status) {
+      emailAccountData.status = emailAccount.status;
+    }
+    
+    if (!emailAccountData.createdAt && emailAccount.createdAt) {
+      emailAccountData.createdAt = emailAccount.createdAt;
+    }
+    
+    // Create a deep copy to ensure no references are shared
+    const updatedEmailAccount = JSON.parse(JSON.stringify({ ...emailAccount, ...emailAccountData }));
+    
+    // Log what's being updated (mask sensitive data)
+    const logData = { ...updatedEmailAccount };
+    if (logData.smtpPassword) logData.smtpPassword = '***MASKED***';
+    if (logData.imapPassword) logData.imapPassword = '***MASKED***';
+    console.log(`Updating email account ${id}:`, logData);
+    
+    this.emailAccounts.set(id, updatedEmailAccount);
+    return updatedEmailAccount;
+  }
+
+  async getAllEmailAccounts(): Promise<EmailAccount[]> {
+    return Array.from(this.emailAccounts.values());
+  }
+  
+  async deleteEmailAccount(id: number): Promise<boolean> {
+    const account = await this.getEmailAccount(id);
+    if (!account) {
+      return false; // Account not found to delete
+    }
+    
+    // First, find and delete any creator-email associations for this account
+    const associations = Array.from(this.creatorEmailAccounts.values())
+      .filter(assoc => assoc.emailAccountId === id);
+      
+    // Delete each association
+    for (const assoc of associations) {
+      this.creatorEmailAccounts.delete(assoc.id);
+    }
+    
+    // Then delete the account itself
+    return this.emailAccounts.delete(id);
+  }
+
+  // Creator-Email Account associations
+  async linkCreatorToEmailAccount(association: InsertCreatorEmailAccount): Promise<CreatorEmailAccount> {
+    try {
+      console.log(`Linking account ${association.emailAccountId} to creator ${association.creatorId}, isPrimary: ${association.isPrimary}`);
+      
+      // First check if the creator and email account exist
+      const [creator] = await db.select().from(creators).where(eq(creators.id, association.creatorId));
+      if (!creator) {
+        throw new Error(`Creator with ID ${association.creatorId} not found`);
+      }
+      
+      const [emailAccount] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, association.emailAccountId));
+      if (!emailAccount) {
+        throw new Error(`Email account with ID ${association.emailAccountId} not found`);
+      }
+      
+      // Check if this association already exists
+      const [existingAssociation] = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(
+          and(
+            eq(creatorEmailAccounts.creatorId, association.creatorId),
+            eq(creatorEmailAccounts.emailAccountId, association.emailAccountId)
+          )
+        );
+      
+      if (existingAssociation) {
+        // Update the existing association instead of creating a new one
+        const [updatedAssociation] = await db
+          .update(creatorEmailAccounts)
+          .set({
+            isPrimary: association.isPrimary
+          })
+          .where(eq(creatorEmailAccounts.id, existingAssociation.id))
+          .returning();
+        
+        return updatedAssociation;
+      }
+      
+      // Create the association
+      const [creatorEmailAccount] = await db
+        .insert(creatorEmailAccounts)
+        .values({
+          ...association,
+          createdAt: new Date()
+        })
+        .returning();
+      
+      return creatorEmailAccount;
+    } catch (error) {
+      console.error('Failed to link email account:', error);
+      throw error;
+    }
+  }
+
+  async getCreatorEmailAccounts(creatorId: number): Promise<EmailAccount[]> {
+    try {
+      // Get all association records for this creator
+      const associations = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.creatorId, creatorId));
+      
+      if (associations.length === 0) {
+        return [];
+      }
+      
+      // Get all email accounts in a single query
+      const emails = await db
+        .select()
+        .from(emailAccounts)
+        .where(inArray(
+          emailAccounts.id, 
+          associations.map(assoc => assoc.emailAccountId)
+        ));
+      
+      return emails;
+    } catch (error) {
+      console.error(`Failed to get creator email accounts for creator ${creatorId}:`, error);
+      return [];
+    }
+  }
+
+  async getPrimaryEmailAccountForCreator(creatorId: number): Promise<EmailAccount | undefined> {
+    try {
+      // First find the primary association
+      const [primaryAssociation] = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(
+          and(
+            eq(creatorEmailAccounts.creatorId, creatorId),
+            eq(creatorEmailAccounts.isPrimary, true)
+          )
+        );
+      
+      if (!primaryAssociation) {
+        return undefined;
+      }
+      
+      // Then get the account details
+      const [account] = await db
+        .select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, primaryAssociation.emailAccountId));
+      
+      return account;
+    } catch (error) {
+      console.error(`Failed to get primary email account for creator ${creatorId}:`, error);
+      return undefined;
+    }
+  }
+  
+  async getCreatorEmailAccountAssociations(): Promise<CreatorEmailAccount[]> {
+    try {
+      return await db.select().from(creatorEmailAccounts);
+    } catch (error) {
+      console.error('Failed to get creator email account associations:', error);
+      return [];
+    }
+  }
+  
+  async deleteCreatorEmailAccount(id: number): Promise<boolean> {
+    try {
+      const result = await db
+        .delete(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.id, id));
+      
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (error) {
+      console.error(`Failed to delete creator email account association ${id}:`, error);
+      return false;
+    }
+  }
+
+  // Sample data initialization for development purposes
+  private async initSampleData() {
+    try {
+      // First check if we already have sample data
+      const [existingUser] = await db.select().from(users).where(eq(users.username, "john.doe"));
+      if (existingUser) {
+        console.log("Sample data already exists, skipping initialization");
+        return;
+      }
+
+      console.log("Initializing sample data...");
+      
+      // Sample user
+      const user = await this.createUser({
+        username: "john.doe",
+        password: "password123", // Would be hashed in production
+        fullName: "John Doe",
+        email: "john@example.com"
+      });
+      
+      // We'll disable sample creator generation since we're using real creators now
+      // from the database.
+      console.log("Sample data initialization completed successfully");
+      
+    } catch (error) {
+      console.error("Error initializing sample data:", error);
+      // We'll continue even if sample data initialization fails
+      // to avoid crashing the application
+    }
+  }
+
+    // Sample contacts
+    const contact1 = await this.createContact({
+      firstName: "Michael",
+      lastName: "Johnson",
+      company: "Xtend",
+      email: "dm@xtend.company",
+      role: "CTO",
+      industry: "Software",
+      userId: user.id
+    });
+
+    const contact2 = await this.createContact({
+      firstName: "Emma",
+      lastName: "Wilson",
+      company: "TechStars",
+      email: "emma@techstars.com",
+      role: "VP Marketing",
+      industry: "Technology",
+      userId: user.id
+    });
+
+    const contact3 = await this.createContact({
+      firstName: "David",
+      lastName: "Lopez",
+      company: "Global Shop",
+      email: "david@globalshop.com",
+      role: "CEO",
+      industry: "E-commerce",
+      userId: user.id
+    });
+
+    // Sample contact list
+    const contactList1 = await this.createContactList({
+      name: "Tech Decision Makers",
+      description: "Key technology decision makers at software companies",
+      userId: user.id
+    });
+
+    // Add contacts to list
+    await this.addContactToList(contactList1.id, contact1.id);
+    await this.addContactToList(contactList1.id, contact2.id);
+
+    const contactList2 = await this.createContactList({
+      name: "E-commerce Leaders",
+      description: "Leaders in the e-commerce space",
+      userId: user.id
+    });
+
+    await this.addContactToList(contactList2.id, contact3.id);
+
+    // Sample campaigns
+    const campaign1 = await this.createCampaign({
+      name: "SaaS Outreach: Q2 2023",
+      objective: "Book a demo",
+      tone: "Professional",
+      sequenceCount: 3,
+      interval: 3,
+      status: "active",
+      creatorId: creator1.id,
+      contactListId: contactList1.id,
+      userId: user.id,
+      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
+    });
+
+    // Update with some progress
+    await this.updateCampaign(campaign1.id, {
+      progress: 65,
+      openRate: 42,
+      responseRate: 18
+    });
+
+    const campaign2 = await this.createCampaign({
+      name: "Tech Startups Follow-up",
+      objective: "Schedule a call",
+      tone: "Friendly",
+      sequenceCount: 3,
+      interval: 4,
+      status: "active",
+      creatorId: creator2.id,
+      contactListId: contactList1.id,
+      userId: user.id,
+      startDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000) // 5 days ago
+    });
+
+    // Update with some progress
+    await this.updateCampaign(campaign2.id, {
+      progress: 35,
+      openRate: 38,
+      responseRate: 14
+    });
+
+    const campaign3 = await this.createCampaign({
+      name: "E-commerce Decision Makers",
+      objective: "Introduce new product",
+      tone: "Direct",
+      sequenceCount: 2,
+      interval: 5,
+      status: "scheduled",
+      creatorId: creator3.id,
+      contactListId: contactList2.id,
+      userId: user.id,
+      startDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000) // 2 days in future
+    });
+    
+    // Create campaign for Tyler Blanchard
+    const campaign4 = await this.createCampaign({
+      name: "STEM Education Outreach",
+      objective: "Schedule introductory call",
+      tone: "Educational",
+      sequenceCount: 3,
+      interval: 4,
+      status: "active",
+      creatorId: creator4.id,
+      contactListId: contactList1.id,
+      userId: user.id,
+      startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    });
+    
+    // Update with some progress
+    await this.updateCampaign(campaign4.id, {
+      progress: 50,
+      openRate: 45,
+      responseRate: 20
+    });
+
+    // Sample email templates
+    const sampleTemplate1 = await this.createEmailTemplate({
+      name: "Professional Introduction",
+      description: "A formal introduction template for initial outreach",
+      content: JSON.stringify({
+        components: [
+          {
+            type: "header",
+            content: "Introduction from {{creatorName}}",
+            id: "header-1"
+          },
+          {
+            type: "text",
+            content: "Hello {{firstName}},\n\nI hope this email finds you well. My name is {{creatorName}} and I am a {{creatorRole}} specializing in helping companies like {{company}} achieve their goals.",
+            id: "intro-text"
+          },
+          {
+            type: "text",
+            content: "I've been following {{company}}'s work in the {{industry}} space and I'm particularly impressed with your recent developments.",
+            id: "personalization"
+          },
+          {
+            type: "callToAction",
+            content: "Would you be open to a 15-minute call next week to discuss how I might be able to help {{company}} with {{painPoint}}?",
+            id: "cta-1"
+          },
+          {
+            type: "text",
+            content: "Looking forward to your response,\n\nBest regards,\n{{creatorName}}\n{{creatorRole}}",
+            id: "signature"
+          }
+        ],
+        styles: {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "14px",
+          color: "#333333",
+          backgroundColor: "#ffffff"
+        }
+      }),
+      userId: user.id,
+      creatorId: creator1.id,
+      isSystem: true,
+      category: "introduction"
+    });
+    
+    const sampleTemplate2 = await this.createEmailTemplate({
+      name: "Follow-up Template",
+      description: "A gentle follow-up to an initial email",
+      content: JSON.stringify({
+        components: [
+          {
+            type: "header",
+            content: "Following up on our previous conversation",
+            id: "header-1"
+          },
+          {
+            type: "text",
+            content: "Hi {{firstName}},\n\nI wanted to follow up on my previous email regarding {{subject}}. I understand you're likely busy, but I'd still love to connect about how I might be able to help {{company}} with {{painPoint}}.",
+            id: "intro-text"
+          },
+          {
+            type: "callToAction",
+            content: "Would any of these times work for a brief call?\n- Tuesday at 10am\n- Wednesday at 2pm\n- Thursday at 4pm",
+            id: "cta-1"
+          },
+          {
+            type: "text",
+            content: "Looking forward to connecting,\n\nBest regards,\n{{creatorName}}\n{{creatorRole}}",
+            id: "signature"
+          }
+        ],
+        styles: {
+          fontFamily: "Arial, sans-serif",
+          fontSize: "14px",
+          color: "#333333",
+          backgroundColor: "#ffffff"
+        }
+      }),
+      userId: user.id,
+      creatorId: creator2.id,
+      isSystem: true,
+      category: "follow-up"
+    });
+
+    // Sample email accounts
+    const emailAccount1 = await this.createEmailAccount({
+      email: "mark@xtendcreators.com",
+      name: "Mark Johnson",
+      status: "active",
+      provider: "gmail",
+      dailyLimit: 100,
+      warmupEnabled: true,
+      userId: user.id
+    });
+
+    const emailAccount2 = await this.createEmailAccount({
+      email: "sarah@xtendcreators.com",
+      name: "Sarah Williams",
+      status: "active",
+      provider: "outlook",
+      dailyLimit: 80,
+      warmupEnabled: true,
+      userId: user.id
+    });
+    
+    // Permanent email account that should never be removed during cleanup
+    await this.createEmailAccount({
+      email: "shayirimi@stemmgt.com",
+      name: "Shayirimi STEM",
+      status: "active",
+      provider: "google",
+      dailyLimit: 150,
+      warmupEnabled: true,
+      userId: user.id,
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 465,
+      smtpUsername: "shayirimi@stemmgt.com",
+      smtpPassword: "mojf rolk ixyb qrgb",
+      smtpSecure: true,
+      imapHost: "imap.gmail.com",
+      imapPort: 993,
+      imapUsername: "shayirimi@stemmgt.com",
+      imapPassword: "mojf rolk ixyb qrgb",
+      imapSecure: true
+    });
+
+    const emailAccount3 = await this.createEmailAccount({
+      email: "alex@xtendcreators.com",
+      name: "Alex Thompson",
+      status: "active",
+      provider: "gmail",
+      dailyLimit: 120,
+      warmupEnabled: false,
+      userId: user.id
+    });
+
+    // Link email accounts to creators
+    await this.linkCreatorToEmailAccount({
+      creatorId: creator1.id,
+      emailAccountId: emailAccount1.id,
+      isPrimary: true
+    });
+
+    await this.linkCreatorToEmailAccount({
+      creatorId: creator2.id,
+      emailAccountId: emailAccount2.id,
+      isPrimary: true
+    });
+
+    await this.linkCreatorToEmailAccount({
+      creatorId: creator3.id,
+      emailAccountId: emailAccount3.id,
+      isPrimary: true
+    });
+    
+    // Create email account for Tyler Blanchard
+    const emailAccount4 = await this.createEmailAccount({
+      email: "tyler@xtendcreators.com",
+      name: "Tyler Blanchard",
+      status: "active",
+      provider: "gmail",
+      dailyLimit: 150,
+      warmupEnabled: true,
+      userId: user.id
+    });
+    
+    // Link email account to Tyler
+    await this.linkCreatorToEmailAccount({
+      creatorId: creator4.id,
+      emailAccountId: emailAccount4.id,
+      isPrimary: true
+    });
+
+    // Sample emails for Campaign 1
+    // First sequence (already sent)
+    await this.createEmail({
+      campaignId: campaign1.id,
+      contactId: contact1.id,
+      sequence: 1,
+      subject: "Enhancing Xtend's Tech Infrastructure - A Quick Chat?",
+      body: "Hi Michael,\n\nI noticed Xtend has been making waves in the software industry, particularly with your recent cloud migration initiatives.\n\nAs the CTO, you're likely focused on optimizing your tech stack while maintaining security and scalability. I've helped similar companies streamline their infrastructure, resulting in 30-40% cost savings and improved performance.\n\nA few quick points that might interest you:\n- We reduced deployment times by 40% for a SaaS platform similar to yours\n- Implemented zero-downtime updates for critical systems\n- Automated security protocols that saved 15+ engineering hours weekly\n\nWould you be open to a 15-minute call next week to discuss how these approaches might benefit Xtend?\n\nLooking forward to connecting,\n\nMark Johnson\nSaaS Growth Expert\n555-123-4567",
+      status: "opened",
+      scheduledAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      sentAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      openedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
+    });
+
+    // Second sequence (already sent)
+    await this.createEmail({
+      campaignId: campaign1.id,
+      contactId: contact1.id,
+      sequence: 2,
+      subject: "Following up: Solutions for Xtend's Growth Challenges",
+      body: "Hi Michael,\n\nI reached out last week about how we've been helping CTOs like you streamline their technology operations.\n\nI wanted to share a quick case study about how we helped a similar software company reduce deployment times by 40% while improving their security posture.\n\nTheir main challenges were:\n- Lengthy deployment cycles causing developer frustration\n- Security concerns with their cloud infrastructure\n- Scaling issues during peak usage times\n\nSound familiar? I'd love to chat about how we addressed these issues with practical, cost-effective solutions.\n\nHow does your calendar look next Tuesday or Wednesday for a quick call?\n\nBest regards,\n\nMark Johnson\nSaaS Growth Expert\n555-123-4567",
+      status: "sent",
+      scheduledAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+      sentAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000)
+    });
+
+    // Third sequence (scheduled for the future)
+    await this.createEmail({
+      campaignId: campaign1.id,
+      contactId: contact1.id,
+      sequence: 3,
+      subject: "Last touchpoint: Exclusive offer for Xtend",
+      body: "Hi Michael,\n\nI've tried to reach you regarding how our solution can help Xtend optimize its technology infrastructure.\n\nI understand you're busy, so I'll make this brief. We're offering a complimentary tech assessment for selected companies, and I've reserved a spot for Xtend.\n\nThis includes:\n- Infrastructure security review\n- Performance optimization recommendations\n- Cost-saving opportunities analysis\n\nThis offer is available until the end of the month. Would you like to take advantage of it?\n\nJust reply to this email, and we can schedule it at your convenience.\n\nAll the best,\n\nMark Johnson\nSaaS Growth Expert\n555-123-4567",
+      status: "scheduled",
+      scheduledAt: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)
+    });
+
+    // Emails for contact 2 in campaign 1
+    await this.createEmail({
+      campaignId: campaign1.id,
+      contactId: contact2.id,
+      sequence: 1,
+      subject: "Enhancing TechStars' Marketing Technology - Quick Discussion?",
+      body: "Hi Emma,\n\nI've been following TechStars' impressive growth in the technology sector and noticed your recent marketing initiatives.\n\nAs VP of Marketing, you're likely focused on optimizing your martech stack while improving campaign performance and attribution. I've helped similar companies enhance their marketing operations, resulting in 25-35% increase in qualified leads.\n\nA few quick points that might interest you:\n- We improved lead scoring accuracy by 60% for a tech platform similar to yours\n- Implemented cross-channel attribution that clarified ROI calculations\n- Streamlined marketing automation that saved 20+ hours weekly for your team size\n\nWould you be open to a 15-minute call next week to discuss how these approaches might benefit TechStars?\n\nLooking forward to connecting,\n\nMark Johnson\nSaaS Growth Expert\n555-123-4567",
+      status: "replied",
+      scheduledAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      sentAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      openedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      repliedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
+    });
+
+    // Second and third sequence not needed since they replied to the first
+
+    // Sample emails for Campaign 2
+    await this.createEmail({
+      campaignId: campaign2.id,
+      contactId: contact1.id,
+      sequence: 1,
+      subject: "Innovative Tech Solutions for Xtend's Growth",
+      body: "Hi Michael,\n\nI've been really impressed with Xtend's innovative approach in the software space! Your recent kubernetes deployment caught my attention at the CloudNative conference.\n\nI work with CTOs who are looking to push the boundaries of what's possible with modern cloud architecture. Many of them face challenges around scaling infrastructure, maintaining security, and enabling developer productivity.\n\nI recently helped a company similar to yours implement a new microservices architecture that:\n- Cut deployment times from hours to minutes\n- Reduced cloud infrastructure costs by 32%\n- Allowed them to ship new features 2x faster\n\nI'd love to share some insights that might be valuable for your team at Xtend. Would you be open to a quick 20-minute chat next week?\n\nLooking forward to connecting,\n\nSarah Williams\nTech Influencer",
+      status: "sent",
+      scheduledAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      sentAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)
+    });
+
+    // Create some scheduled emails for Campaign 3
+    await this.createEmail({
+      campaignId: campaign3.id,
+      contactId: contact3.id,
+      sequence: 1,
+      subject: "Revolutionize Global Shop's E-commerce Experience",
+      body: "Hi David,\n\nI noticed that Global Shop has been expanding its online presence, and I wanted to reach out with some ideas that could help accelerate your growth in the e-commerce space.\n\nAs the CEO of an e-commerce company, you're likely focused on conversion rates, customer experience, and scaling operations efficiently. I've worked with similar companies to implement strategies that have resulted in 30-45% revenue increases within just a few months.\n\nHere are some specific results we've achieved for companies in your industry:\n- Increased cart conversion rates by 28% through optimized checkout flows\n- Reduced customer acquisition costs by 35% with targeted segmentation\n- Implemented inventory forecasting that reduced stockouts by 60%\n\nI'd love to share more about how these approaches could be tailored for Global Shop. Would you be open to a brief call next week?\n\nBest regards,\n\nAlex Thompson\nE-commerce Consultant",
+      status: "scheduled",
+      scheduledAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+    });
+
+    await this.createEmail({
+      campaignId: campaign3.id,
+      contactId: contact3.id,
+      sequence: 2,
+      subject: "Follow-up: E-commerce Optimization for Global Shop",
+      body: "Hi David,\n\nI reached out recently about some e-commerce optimization strategies that could help Global Shop increase conversion rates and customer lifetime value.\n\nI wanted to share a brief case study of how we helped an e-commerce retailer similar to Global Shop achieve remarkable results:\n\n- They were struggling with cart abandonment and customer retention\n- We implemented personalized product recommendations and abandoned cart recovery\n- Result: 42% increase in average order value and 25% improvement in customer retention\n\nThese are the kinds of outcomes we consistently deliver for our clients in the e-commerce space.\n\nI'd be happy to discuss how we could apply similar strategies to Global Shop's specific situation. How does your calendar look next Thursday or Friday?\n\nRegards,\n\nAlex Thompson\nE-commerce Consultant",
+      status: "scheduled",
+      scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    });
+    
+    // Sample emails for Tyler's campaign (Campaign 4)
+    await this.createEmail({
+      campaignId: campaign4.id,
+      contactId: contact1.id,
+      sequence: 1,
+      subject: "Enhancing STEM Education at Xtend",
+      body: "Hi Michael,\n\nI came across Xtend's recent initiative to support educational programs in your community, and I was particularly impressed by your commitment to STEM education.\n\nAs a technical communicator with experience developing educational programs for technology companies, I've seen firsthand how strategic STEM initiatives can create both social impact and talent pipeline benefits.\n\nI've helped companies similar to yours develop programs that:\n- Increased local student engagement in STEM by 45%\n- Created mentorship opportunities between employees and students\n- Resulted in measurable improvements in both recruitment and community relations\n\nWould you be interested in a brief conversation about how Xtend could enhance its STEM education outreach?\n\nLooking forward to connecting,\n\nTyler Blanchard\nEducational Content Specialist\n555-987-6543",
+      status: "opened",
+      scheduledAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      sentAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      openedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    });
+    
+    // Second sequence email for Tyler's campaign
+    await this.createEmail({
+      campaignId: campaign4.id,
+      contactId: contact1.id,
+      sequence: 2,
+      subject: "Following up: STEM Educational Resources for Xtend",
+      body: "Hi Michael,\n\nI wanted to follow up on my previous email about enhancing Xtend's STEM education initiatives.\n\nI've attached a brief case study of how we worked with a technology company to develop a comprehensive STEM outreach program that significantly improved their community relations and created a talent pipeline for future recruitment.\n\nSome key outcomes included:\n- Development of custom educational materials aligned with company expertise\n- Creation of a volunteer program that engaged 35% of employees\n- Establishment of ongoing relationships with local schools and educational institutions\n\nI'd be happy to discuss how we could develop similar initiatives for Xtend. Are you available for a quick call next Tuesday or Wednesday?\n\nBest regards,\n\nTyler Blanchard\nEducational Content Specialist\n555-987-6543",
+      status: "sent",
+      scheduledAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      sentAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000)
+    });
+    
+    // Third sequence scheduled for the future
+    await this.createEmail({
+      campaignId: campaign4.id,
+      contactId: contact1.id,
+      sequence: 3,
+      subject: "STEM Workshop Opportunity for Xtend",
+      body: "Hi Michael,\n\nI've reached out a couple of times regarding how Xtend could enhance its STEM education initiatives. I understand you're busy, so I'll be brief.\n\nWe're offering a free workshop for selected companies interested in developing effective STEM outreach programs. This 90-minute session covers:\n\n- Designing educational materials that showcase your company's expertise\n- Creating meaningful volunteer opportunities for employees\n- Measuring the impact of your educational initiatives\n\nI've reserved a spot for Xtend in our upcoming workshop. Would you or someone from your team be interested in attending?\n\nJust reply to this email if you'd like more details.\n\nAll the best,\n\nTyler Blanchard\nEducational Content Specialist\n555-987-6543",
+      status: "scheduled",
+      scheduledAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+    });
+  }
+}
+
+/**
+ * Database Storage Implementation
+ * Implements the IStorage interface using a PostgreSQL database
+ */
+export class DatabaseStorage implements IStorage {
+  private memStorage: MemStorage;
+
+  constructor(memStorage?: MemStorage) {
+    // Use the provided memStorage or create a new one if none is provided
+    this.memStorage = memStorage || new MemStorage();
+  }
+  
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    // We'll keep memory storage for user operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getUser(id);
+  }
+  
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    // We'll keep memory storage for user operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getUserByUsername(username);
+  }
+  
+  async createUser(insertUser: InsertUser): Promise<User> {
+    // We'll keep memory storage for user operations for now
+    const memStorage = new MemStorage();
+    return memStorage.createUser(insertUser);
+  }
+  
+  async updateUser(id: number, userData: Partial<User>): Promise<User> {
+    // We'll keep memory storage for user operations for now
+    const memStorage = new MemStorage();
+    return memStorage.updateUser(id, userData);
+  }
+  
+  async getFirstUser(): Promise<User | undefined> {
+    // We'll keep memory storage for user operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getFirstUser();
+  }
+  
+  // Creator operations
+  async getCreator(id: number): Promise<Creator | undefined> {
+    // We'll keep memory storage for creator operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getCreator(id);
+  }
+  
+  async createCreator(creator: InsertCreator): Promise<Creator> {
+    // We'll keep memory storage for creator operations for now
+    const memStorage = new MemStorage();
+    return memStorage.createCreator(creator);
+  }
+  
+  async updateCreator(id: number, creatorData: Partial<Creator>): Promise<Creator> {
+    // We'll keep memory storage for creator operations for now
+    const memStorage = new MemStorage();
+    return memStorage.updateCreator(id, creatorData);
+  }
+  
+  async deleteCreator(id: number): Promise<boolean> {
+    // We'll keep memory storage for creator operations for now
+    const memStorage = new MemStorage();
+    return memStorage.deleteCreator(id);
+  }
+  
+  async getAllCreators(): Promise<Creator[]> {
+    // We'll keep memory storage for creator operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getAllCreators();
+  }
+  
+  // Contact operations
+  async getContact(id: number): Promise<Contact | undefined> {
+    // Use the shared memory storage instance
+    return this.memStorage.getContact(id);
+  }
+  
+  async createContact(contact: InsertContact): Promise<Contact> {
+    // Use the shared memory storage instance
+    return this.memStorage.createContact(contact);
+  }
+  
+  async updateContact(id: number, contactData: Partial<Contact>): Promise<Contact> {
+    // Use the shared memory storage instance
+    return this.memStorage.updateContact(id, contactData);
+  }
+  
+  async deleteContact(id: number): Promise<boolean> {
+    // Use the shared memory storage instance
+    return this.memStorage.deleteContact(id);
+  }
+  
+  async archiveContact(id: number): Promise<Contact> {
+    // Use the shared memory storage instance
+    return this.memStorage.archiveContact(id);
+  }
+  
+  async restoreContact(id: number): Promise<Contact> {
+    // Use the shared memory storage instance
+    return this.memStorage.restoreContact(id);
+  }
+  
+  async getAllContacts(): Promise<Contact[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getAllContacts();
+  }
+  
+  async searchContacts(query: string): Promise<Contact[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.searchContacts(query);
+  }
+  
+  async getFilteredContacts(filter: ContactFilterParams): Promise<Contact[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getFilteredContacts(filter);
+  }
+  
+  // ContactList operations
+  async getContactList(id: number): Promise<ContactList | undefined> {
+    // Use the shared memory storage instance
+    return this.memStorage.getContactList(id);
+  }
+  
+  async createContactList(contactList: InsertContactList): Promise<ContactList> {
+    // Use the shared memory storage instance
+    return this.memStorage.createContactList(contactList);
+  }
+  
+  async getAllContactLists(): Promise<ContactList[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getAllContactLists();
+  }
+  
+  async addContactToList(listId: number, contactId: number): Promise<ContactListEntry> {
+    // Use the shared memory storage instance
+    return this.memStorage.addContactToList(listId, contactId);
+  }
+  
+  async getContactsInList(listId: number): Promise<Contact[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getContactsInList(listId);
+  }
+  
+  // Campaign operations
+  async getCampaign(id: number): Promise<Campaign | undefined> {
+    // Use the shared memory storage instance
+    return this.memStorage.getCampaign(id);
+  }
+  
+  async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
+    // Use the shared memory storage instance
+    return this.memStorage.createCampaign(campaign);
+  }
+  
+  async updateCampaign(id: number, campaignData: Partial<Campaign>): Promise<Campaign> {
+    // Use the shared memory storage instance
+    return this.memStorage.updateCampaign(id, campaignData);
+  }
+  
+  async deleteCampaign(id: number): Promise<boolean> {
+    // Use the shared memory storage instance
+    return this.memStorage.deleteCampaign(id);
+  }
+  
+  async getAllCampaigns(): Promise<Campaign[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getAllCampaigns();
+  }
+  
+  async getRecentCampaigns(limit: number): Promise<Campaign[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getRecentCampaigns(limit);
+  }
+  
+  // Email operations
+  async createEmail(email: InsertEmail): Promise<Email> {
+    // Use the shared memory storage instance
+    return this.memStorage.createEmail(email);
+  }
+  
+  async getEmail(id: number): Promise<Email | undefined> {
+    // Use the shared memory storage instance
+    return this.memStorage.getEmail(id);
+  }
+  
+  async updateEmail(id: number, emailData: Partial<Email>): Promise<Email> {
+    // Use the shared memory storage instance
+    return this.memStorage.updateEmail(id, emailData);
+  }
+  
+  async deleteEmail(id: number): Promise<boolean> {
+    // Use the shared memory storage instance
+    return this.memStorage.deleteEmail(id);
+  }
+  
+  async getEmailsByCampaign(campaignId: number): Promise<Email[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getEmailsByCampaign(campaignId);
+  }
+  
+  async getAllEmails(): Promise<Email[]> {
+    // Use the shared memory storage instance
+    return this.memStorage.getAllEmails();
+  }
+  
+  // Email Account operations
+  async getEmailAccount(id: number): Promise<EmailAccount | undefined> {
+    // First check in our shared memory storage instance
+    const memAccount = await this.memStorage.getEmailAccount(id);
+    
+    // If we find it in memory, return it
+    if (memAccount) {
+      return memAccount;
+    }
+    
+    // If not found in memory, check the database
+    try {
+      const { db } = await import('./db');
+      const { emailAccounts } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      
+      // Query the database by ID
+      const [dbAccount] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, id));
+      
+      if (dbAccount) {
+        // Convert database account to our internal format
+        const account: EmailAccount = {
+          id: dbAccount.id,
+          email: dbAccount.email,
+          name: dbAccount.name,
+          status: dbAccount.status || 'active',
+          provider: dbAccount.provider || 'smtp',
+          dailyLimit: dbAccount.dailyLimit || 100,
+          warmupEnabled: dbAccount.warmupEnabled || false,
+          createdAt: dbAccount.createdAt || new Date(),
+          notes: dbAccount.notes,
+          // Include other fields as needed
+          smtpHost: dbAccount.smtpHost,
+          smtpPort: dbAccount.smtpPort,
+          smtpUsername: dbAccount.smtpUsername,
+          smtpPassword: dbAccount.smtpPassword,
+          smtpSecure: dbAccount.smtpSecure,
+          imapHost: dbAccount.imapHost,
+          imapPort: dbAccount.imapPort,
+          imapUsername: dbAccount.imapUsername,
+          imapPassword: dbAccount.imapPassword,
+          imapSecure: dbAccount.imapSecure,
+          hourlyLimit: dbAccount.hourlyLimit,
+          warmupInProgress: dbAccount.warmupInProgress,
+          warmupStartDate: dbAccount.warmupStartDate,
+          warmupDailyIncrement: dbAccount.warmupDailyIncrement,
+          warmupMaxVolume: dbAccount.warmupMaxVolume,
+          domainAuthenticated: dbAccount.domainAuthenticated,
+          dkimConfigured: dbAccount.dkimConfigured,
+          spfConfigured: dbAccount.spfConfigured,
+          dmarcConfigured: dbAccount.dmarcConfigured,
+          bounceRate: dbAccount.bounceRate,
+          complaintRate: dbAccount.complaintRate,
+          openRate: dbAccount.openRate,
+          clickRate: dbAccount.clickRate,
+          replyRate: dbAccount.replyRate,
+          healthScore: dbAccount.healthScore,
+          healthStatus: dbAccount.healthStatus,
+          lastHealthCheck: dbAccount.lastHealthCheck,
+          testModeOnly: dbAccount.testModeOnly,
+          userId: dbAccount.userId,
+        };
+        
+        // Add to shared memory storage for future use
+        this.memStorage.emailAccounts.set(id, account);
+        console.log(`Added email account ${dbAccount.email} from database to memory storage`);
+        
+        return account;
+      }
+    } catch (error) {
+      console.error('Error fetching email account from database:', error);
+    }
+    
+    // Not found in either storage
+    return undefined;
+  }
+  
+  async createEmailAccount(emailAccount: InsertEmailAccount): Promise<EmailAccount> {
+    try {
+      // Create a clean version for the database with required fields
+      const dbEmailAccount = {
+        ...emailAccount,
+        // Handle any fields that might be undefined
+        status: emailAccount.status || 'active',
+        provider: emailAccount.provider || 'smtp',
+        dailyLimit: emailAccount.dailyLimit || 100,
+        warmupEnabled: emailAccount.warmupEnabled || false,
+        createdAt: new Date(),
+      };
+      
+      // Check if the account already exists in the database
+      const existing = await db.select().from(emailAccounts).where(eq(emailAccounts.email, emailAccount.email));
+      
+      if (existing.length === 0) {
+        // Insert new account
+        const [insertedAccount] = await db.insert(emailAccounts)
+          .values(dbEmailAccount)
+          .returning();
+          
+        console.log(`Email account ${emailAccount.email} inserted into database`);
+        return insertedAccount;
+      } else {
+        // Return the existing account
+        console.log(`Email account ${emailAccount.email} already exists in database, returning existing`);
+        return existing[0];
+      }
+    } catch (error) {
+      console.error('Error inserting email account into database:', error);
+      throw error;
+    }
+  }
+  
+  async updateEmailAccount(id: number, emailAccountData: Partial<EmailAccount>): Promise<EmailAccount> {
+    try {
+      // First get the current account
+      const [currentAccount] = await db.select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, id));
+      
+      if (!currentAccount) {
+        throw new Error(`Email account with ID ${id} not found`);
+      }
+      
+      // Special handling for credentials - preserve them if not explicitly set
+      // SMTP password handling
+      if (emailAccountData.smtpPassword === undefined && currentAccount.smtpPassword) {
+        emailAccountData.smtpPassword = currentAccount.smtpPassword;
+      }
+      
+      // IMAP password handling
+      if (emailAccountData.imapPassword === undefined && currentAccount.imapPassword) {
+        emailAccountData.imapPassword = currentAccount.imapPassword;
+      }
+      
+      // Log what's being updated (mask sensitive data)
+      const logData = { ...emailAccountData };
+      if (logData.smtpPassword) logData.smtpPassword = '***MASKED***';
+      if (logData.imapPassword) logData.imapPassword = '***MASKED***';
+      console.log(`Updating email account ${id}:`, logData);
+      
+      // Update the account in the database
+      const [updatedAccount] = await db.update(emailAccounts)
+        .set({
+          ...emailAccountData,
+          updatedAt: new Date()
+        })
+        .where(eq(emailAccounts.id, id))
+        .returning();
+      
+      console.log(`Email account ${updatedAccount.email} updated in database`);
+      return updatedAccount;
+    } catch (error) {
+      console.error('Error updating email account in database:', error);
+      throw error;
+    }
+  }
+  
+  async getAllEmailAccounts(): Promise<EmailAccount[]> {
+    try {
+      console.log('Getting all email accounts from database');
+      const accounts = await db.select().from(emailAccounts);
+      console.log(`Found ${accounts.length} email accounts in database`);
+      return accounts;
+    } catch (error) {
+      console.error('Error getting email accounts from database:', error);
+      // Return empty array if database access fails
+      return [];
+    }
+  }
+  
+  async deleteEmailAccount(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(emailAccounts).where(eq(emailAccounts.id, id));
+      return true;
+    } catch (error) {
+      console.error(`Error deleting email account with ID ${id}:`, error);
+      return false;
+    }
+  }
+  
+  // CreatorEmailAccount operations
+  async linkCreatorToEmailAccount(association: InsertCreatorEmailAccount): Promise<CreatorEmailAccount> {
+    try {
+      // Add missing createdAt field
+      const insertData = {
+        ...association,
+        createdAt: new Date()
+      };
+      
+      const [result] = await db.insert(creatorEmailAccounts)
+        .values(insertData)
+        .returning();
+        
+      return result;
+    } catch (error) {
+      console.error(`Error linking creator to email account:`, error);
+      throw error;
+    }
+  }
+  
+  async getCreatorEmailAccounts(creatorId: number): Promise<EmailAccount[]> {
+    try {
+      // Get all associations for this creator
+      const associations = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.creatorId, creatorId));
+      
+      if (associations.length === 0) {
+        return [];
+      }
+      
+      // Get all email accounts for these associations
+      const accountIds = associations.map(a => a.emailAccountId);
+      
+      // Get the email accounts
+      const accounts = await db
+        .select()
+        .from(emailAccounts)
+        .where(inArray(emailAccounts.id, accountIds));
+        
+      return accounts;
+    } catch (error) {
+      console.error(`Error getting email accounts for creator ${creatorId}:`, error);
+      return [];
+    }
+  }
+  
+  async getPrimaryEmailAccountForCreator(creatorId: number): Promise<EmailAccount | undefined> {
+    try {
+      // Get primary association for this creator
+      const [association] = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.creatorId, creatorId))
+        .where(eq(creatorEmailAccounts.isPrimary, true));
+      
+      if (!association) {
+        return undefined;
+      }
+      
+      // Get the email account
+      const [account] = await db
+        .select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, association.emailAccountId));
+        
+      return account;
+    } catch (error) {
+      console.error(`Error getting primary email account for creator ${creatorId}:`, error);
+      return undefined;
+    }
+  }
+  
+  async getCreatorEmailAccountAssociations(): Promise<CreatorEmailAccount[]> {
+    try {
+      return await db.select().from(creatorEmailAccounts);
+    } catch (error) {
+      console.error('Error getting creator email account associations:', error);
+      return [];
+    }
+  }
+  
+  async deleteCreatorEmailAccount(id: number): Promise<boolean> {
+    try {
+      await db.delete(creatorEmailAccounts).where(eq(creatorEmailAccounts.id, id));
+      return true;
+    } catch (error) {
+      console.error(`Error deleting creator-email association with ID ${id}:`, error);
+      return false;
+    }
+  }
+  
+  // EmailTemplate operations
+  async getEmailTemplate(id: number): Promise<DbEmailTemplate | undefined> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getEmailTemplate(id);
+  }
+  
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<DbEmailTemplate> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.createEmailTemplate(template);
+  }
+  
+  async updateEmailTemplate(id: number, templateData: Partial<DbEmailTemplate>): Promise<DbEmailTemplate> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.updateEmailTemplate(id, templateData);
+  }
+  
+  async deleteEmailTemplate(id: number): Promise<boolean> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.deleteEmailTemplate(id);
+  }
+  
+  async getAllEmailTemplates(): Promise<DbEmailTemplate[]> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getAllEmailTemplates();
+  }
+  
+  async getEmailTemplatesByCreator(creatorId: number): Promise<DbEmailTemplate[]> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getEmailTemplatesByCreator(creatorId);
+  }
+  
+  async getSystemEmailTemplates(): Promise<DbEmailTemplate[]> {
+    // We'll keep memory storage for emailTemplate operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getSystemEmailTemplates();
+  }
+  
+  // OutreachLog operations
+  async createOutreachLog(log: InsertOutreachLog): Promise<OutreachLog> {
+    // We'll keep memory storage for outreachLog operations for now
+    const memStorage = new MemStorage();
+    return memStorage.createOutreachLog(log);
+  }
+  
+  async getOutreachLog(id: number): Promise<OutreachLog | undefined> {
+    // We'll keep memory storage for outreachLog operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getOutreachLog(id);
+  }
+  
+  async getOutreachLogsByContactId(contactId: number): Promise<OutreachLog[]> {
+    // We'll keep memory storage for outreachLog operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getOutreachLogsByContactId(contactId);
+  }
+  
+  async getOutreachLogsByDateRange(startDate: Date, endDate: Date): Promise<OutreachLog[]> {
+    // We'll keep memory storage for outreachLog operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getOutreachLogsByDateRange(startDate, endDate);
+  }
+  
+  async getAllOutreachLogs(): Promise<OutreachLog[]> {
+    // We'll keep memory storage for outreachLog operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getAllOutreachLogs();
+  }
+  
+  // ContactNote operations
+  async createContactNote(note: InsertContactNote): Promise<ContactNote> {
+    // We'll keep memory storage for contactNote operations for now
+    const memStorage = new MemStorage();
+    return memStorage.createContactNote(note);
+  }
+  
+  async getContactNote(id: number): Promise<ContactNote | undefined> {
+    // We'll keep memory storage for contactNote operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getContactNote(id);
+  }
+  
+  async getContactNotes(contactId: number): Promise<ContactNote[]> {
+    // We'll keep memory storage for contactNote operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getContactNotes(contactId);
+  }
+  
+  async getContactNotesByContactId(contactId: number): Promise<ContactNote[]> {
+    // We'll keep memory storage for contactNote operations for now
+    const memStorage = new MemStorage();
+    return memStorage.getContactNotesByContactId(contactId);
+  }
+  
+  // Shareable Landing Page operations
+  async createShareableLandingPage(page: InsertShareableLandingPage): Promise<ShareableLandingPage> {
+    // Process string date to proper Date object if provided
+    let expiresAt = null;
+    if (page.expiresAt && typeof page.expiresAt === 'string') {
+      try {
+        expiresAt = new Date(page.expiresAt);
+      } catch (e) {
+        console.error('Invalid date format for expiresAt:', e);
+      }
+    } else if (page.expiresAt instanceof Date) {
+      expiresAt = page.expiresAt;
+    }
+    
+    const [landingPage] = await db
+      .insert(shareableLandingPages)
+      .values({
+        ...page,
+        expiresAt,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        viewCount: 0,
+        uniqueId: page.uniqueId || 
+          `page_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString(36)}`
+      })
+      .returning();
+    
+    return landingPage;
+  }
+  
+  async getShareableLandingPage(id: number): Promise<ShareableLandingPage | undefined> {
+    const [landingPage] = await db
+      .select()
+      .from(shareableLandingPages)
+      .where(eq(shareableLandingPages.id, id));
+    
+    return landingPage;
+  }
+  
+  async getShareableLandingPageByUniqueId(uniqueId: string): Promise<ShareableLandingPage | undefined> {
+    const [landingPage] = await db
+      .select()
+      .from(shareableLandingPages)
+      .where(eq(shareableLandingPages.uniqueId, uniqueId));
+    
+    return landingPage;
+  }
+  
+  async updateShareableLandingPage(id: number, pageData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage> {
+    const [landingPage] = await db
+      .update(shareableLandingPages)
+      .set({
+        ...pageData,
+        updatedAt: new Date()
+      })
+      .where(eq(shareableLandingPages.id, id))
+      .returning();
+    
+    if (!landingPage) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    return landingPage;
+  }
+  
+  async deleteShareableLandingPage(id: number): Promise<boolean> {
+    const result = await db
+      .delete(shareableLandingPages)
+      .where(eq(shareableLandingPages.id, id));
+    
+    return result.rowCount > 0;
+  }
+  
+  async getAllShareableLandingPages(): Promise<ShareableLandingPage[]> {
+    return db
+      .select()
+      .from(shareableLandingPages)
+      .orderBy(desc(shareableLandingPages.createdAt));
+  }
+  
+  async getUserShareableLandingPages(userId: number): Promise<ShareableLandingPage[]> {
+    return db
+      .select()
+      .from(shareableLandingPages)
+      .where(eq(shareableLandingPages.userId, userId))
+      .orderBy(desc(shareableLandingPages.createdAt));
+  }
+  
+  async getCreatorShareableLandingPages(creatorId: number): Promise<ShareableLandingPage[]> {
+    return db
+      .select()
+      .from(shareableLandingPages)
+      .where(eq(shareableLandingPages.creatorId, creatorId))
+      .orderBy(desc(shareableLandingPages.createdAt));
+  }
+  
+  async incrementShareableLandingPageViewCount(id: number): Promise<ShareableLandingPage> {
+    const [landingPage] = await db
+      .update(shareableLandingPages)
+      .set({
+        viewCount: sql`${shareableLandingPages.viewCount} + 1`,
+        updatedAt: new Date()
+      })
+      .where(eq(shareableLandingPages.id, id))
+      .returning();
+    
+    if (!landingPage) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    return landingPage;
+  }
+  
+  async updatePageAnalytics(id: number, analyticsData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage> {
+    const [landingPage] = await db
+      .update(shareableLandingPages)
+      .set({
+        ...analyticsData,
+        updatedAt: new Date()
+      })
+      .where(eq(shareableLandingPages.id, id))
+      .returning();
+    
+    if (!landingPage) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    return landingPage;
+  }
+}
+
+// Create a shared memory storage instance to use for our implementation
+const sharedMemStorage = new MemStorage();
+
+// Use the hybrid storage implementation that syncs with the database
+export const storage = new DatabaseStorage(sharedMemStorage);

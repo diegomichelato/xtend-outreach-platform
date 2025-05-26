@@ -1,0 +1,2084 @@
+import { 
+  users, type User, type InsertUser,
+  creators, type Creator, type InsertCreator,
+  contacts, type Contact, type InsertContact,
+  contactLists, type ContactList, type InsertContactList,
+  contactListEntries, type ContactListEntry, type InsertContactListEntry,
+  campaigns, type Campaign, type InsertCampaign,
+  emails, type Email, type InsertEmail,
+  emailAccounts, type EmailAccount, type InsertEmailAccount,
+  creatorEmailAccounts, type CreatorEmailAccount, type InsertCreatorEmailAccount,
+  emailTemplates, type DbEmailTemplate, type InsertEmailTemplate,
+  outreachLogs, type OutreachLog, type InsertOutreachLog,
+  contactNotes, type ContactNote, type InsertContactNote,
+  shareableLandingPages, type ShareableLandingPage, type InsertShareableLandingPage,
+  proposals, type Proposal, type InsertProposal,
+  creatorPricing, type CreatorPricing, type InsertCreatorPricing
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, sql, inArray, and } from "drizzle-orm";
+
+export interface ContactFilterParams {
+  status?: string;
+  tags?: string[];
+  createdAfter?: Date;
+  createdBefore?: Date;
+  lastContactedAfter?: Date;
+  lastContactedBefore?: Date;
+  country?: string;
+  industry?: string;
+  type?: string;
+  search?: string;
+  includeArchived?: boolean;
+}
+
+export interface IStorage {
+  // Creator Pricing operations
+  getCreatorPricing(creatorId: number): Promise<CreatorPricing[]>;
+  
+  // User operations
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, userData: Partial<User>): Promise<User>;
+  getFirstUser(): Promise<User | undefined>; // Helper for demo purposes
+  
+  // Proposal operations
+  getAllProposals(): Promise<Proposal[]>;
+  getProposal(id: number): Promise<Proposal | undefined>;
+  createProposal(proposal: InsertProposal): Promise<Proposal>;
+  updateProposal(id: number, proposalData: Partial<Proposal>): Promise<Proposal | undefined>;
+  deleteProposal(id: number): Promise<void>;
+  
+  // Creator operations
+  getCreator(id: number): Promise<Creator | undefined>;
+  createCreator(creator: InsertCreator): Promise<Creator>;
+  updateCreator(id: number, creatorData: Partial<Creator>): Promise<Creator>;
+  deleteCreator(id: number): Promise<boolean>;
+  getAllCreators(): Promise<Creator[]>;
+  getCreatorPricing(creatorId: number): Promise<CreatorPricing[]>;
+  
+  // Contact operations
+  getContact(id: number): Promise<Contact | undefined>;
+  createContact(contact: InsertContact): Promise<Contact>;
+  updateContact(id: number, contactData: Partial<Contact>): Promise<Contact>;
+  deleteContact(id: number): Promise<boolean>;
+  archiveContact(id: number): Promise<Contact>;
+  restoreContact(id: number): Promise<Contact>;
+  getAllContacts(): Promise<Contact[]>;
+  searchContacts(query: string): Promise<Contact[]>;
+  getFilteredContacts(filter: ContactFilterParams): Promise<Contact[]>;
+  
+  // Contact List operations
+  getContactList(id: number): Promise<ContactList | undefined>;
+  createContactList(contactList: InsertContactList): Promise<ContactList>;
+  getAllContactLists(): Promise<ContactList[]>;
+  addContactToList(listId: number, contactId: number): Promise<ContactListEntry>;
+  getContactsInList(listId: number): Promise<Contact[]>;
+  
+  // Campaign operations
+  getCampaign(id: number): Promise<Campaign | undefined>;
+  createCampaign(campaign: InsertCampaign): Promise<Campaign>;
+  updateCampaign(id: number, campaignData: Partial<Campaign>): Promise<Campaign>;
+  deleteCampaign(id: number): Promise<boolean>;
+  getAllCampaigns(): Promise<Campaign[]>;
+  getRecentCampaigns(limit: number): Promise<Campaign[]>;
+  
+  // Email Account operations
+  getEmailAccount(id: number | string): Promise<EmailAccount | undefined>;
+  getEmailAccountByEmail(email: string): Promise<EmailAccount | undefined>;
+  createEmailAccount(emailAccount: InsertEmailAccount): Promise<EmailAccount>;
+  updateEmailAccount(id: number, emailAccountData: Partial<EmailAccount>): Promise<EmailAccount>;
+  deleteEmailAccount(id: number): Promise<boolean>;
+  getAllEmailAccounts(): Promise<EmailAccount[]>;
+  
+  // Creator-Email Account associations
+  linkCreatorToEmailAccount(association: InsertCreatorEmailAccount): Promise<CreatorEmailAccount>;
+  getCreatorEmailAccounts(creatorId: number): Promise<EmailAccount[]>;
+  getPrimaryEmailAccountForCreator(creatorId: number): Promise<EmailAccount | undefined>;
+  getCreatorEmailAccountAssociations(): Promise<CreatorEmailAccount[]>;
+  deleteCreatorEmailAccount(id: number): Promise<boolean>;
+  
+  // Email operations
+  createEmail(email: InsertEmail): Promise<Email>;
+  getEmail(id: number): Promise<Email | undefined>;
+  updateEmail(id: number, emailData: Partial<Email>): Promise<Email>;
+  deleteEmail(id: number): Promise<boolean>;
+  getEmailsByCampaign(campaignId: number): Promise<Email[]>;
+  getAllEmails(): Promise<Email[]>;
+  
+  // Email Template operations
+  getEmailTemplate(id: number): Promise<DbEmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<DbEmailTemplate>;
+  updateEmailTemplate(id: number, templateData: Partial<DbEmailTemplate>): Promise<DbEmailTemplate>;
+  deleteEmailTemplate(id: number): Promise<boolean>;
+  getAllEmailTemplates(): Promise<DbEmailTemplate[]>;
+  getEmailTemplatesByCreator(creatorId: number): Promise<DbEmailTemplate[]>;
+  getSystemEmailTemplates(): Promise<DbEmailTemplate[]>;
+  
+  // Outreach Log operations
+  createOutreachLog(log: InsertOutreachLog): Promise<OutreachLog>;
+  getOutreachLog(id: number): Promise<OutreachLog | undefined>;
+  getOutreachLogsByContactId(contactId: number): Promise<OutreachLog[]>;
+  getOutreachLogsByDateRange(startDate: Date, endDate: Date): Promise<OutreachLog[]>;
+  getAllOutreachLogs(): Promise<OutreachLog[]>;
+  
+  // Contact Note operations
+  createContactNote(note: InsertContactNote): Promise<ContactNote>;
+  getContactNote(id: number): Promise<ContactNote | undefined>;
+  getContactNotes(contactId: number): Promise<ContactNote[]>;
+  getContactNotesByContactId(contactId: number): Promise<ContactNote[]>;
+  
+  // Shareable Landing Page operations
+  createShareableLandingPage(page: InsertShareableLandingPage): Promise<ShareableLandingPage>;
+  getShareableLandingPage(id: number): Promise<ShareableLandingPage | undefined>;
+  getShareableLandingPageByUniqueId(uniqueId: string): Promise<ShareableLandingPage | undefined>;
+  updateShareableLandingPage(id: number, pageData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage>;
+  deleteShareableLandingPage(id: number): Promise<boolean>;
+  getAllShareableLandingPages(): Promise<ShareableLandingPage[]>;
+  getUserShareableLandingPages(userId: number): Promise<ShareableLandingPage[]>;
+  getCreatorShareableLandingPages(creatorId: number): Promise<ShareableLandingPage[]>;
+  incrementShareableLandingPageViewCount(id: number): Promise<ShareableLandingPage>;
+}
+
+export class MemStorage implements IStorage {
+  private users: Map<number, User>;
+  private creators: Map<number, Creator>;
+  private contacts: Map<number, Contact>;
+  private contactLists: Map<number, ContactList>;
+  private contactListEntries: Map<number, ContactListEntry>;
+  private campaigns: Map<number, Campaign>;
+  private emails: Map<number, Email>;
+  private emailAccounts: Map<number, EmailAccount>;
+  private creatorEmailAccounts: Map<number, CreatorEmailAccount>;
+  private emailTemplates: Map<number, DbEmailTemplate>;
+  private creatorPricing: Map<number, CreatorPricing>;
+  
+  // Implementation of getCreatorPricing
+  async getCreatorPricing(creatorId: number): Promise<CreatorPricing[]> {
+    // Find existing pricing for this creator
+    const pricing = Array.from(this.creatorPricing.values()).filter(
+      p => p.creatorId === creatorId
+    );
+    
+    // If no pricing exists, generate sample pricing
+    if (pricing.length === 0) {
+      const pricingId = this.creatorPricing.size + 1;
+      const samplePricing = [
+        { contentType: "YouTube", format: "Long Form", basePrice: 5000 },
+        { contentType: "YouTube", format: "Short Form", basePrice: 2500 },
+        { contentType: "Instagram", format: "Reel", basePrice: 1800 },
+        { contentType: "TikTok", format: "Video", basePrice: 2000 },
+        { contentType: "Twitter", format: "Post", basePrice: 800 }
+      ];
+      
+      let nextId = pricingId;
+      const newPricing: CreatorPricing[] = [];
+      
+      for (const item of samplePricing) {
+        const pricing: CreatorPricing = {
+          id: nextId++,
+          creatorId,
+          contentType: item.contentType,
+          format: item.format,
+          basePrice: item.basePrice,
+          usageRights: "Digital only, 6 months",
+          revisionLimit: 2,
+          deliveryTimeframe: 14,
+          exclusivity: false,
+          featured: item.contentType === "YouTube",
+          description: `Standard ${item.contentType} ${item.format} content`,
+          createdAt: new Date()
+        };
+        
+        this.creatorPricing.set(pricing.id, pricing);
+        newPricing.push(pricing);
+      }
+      
+      return newPricing;
+    }
+    
+    return pricing;
+  }
+  private outreachLogs: Map<number, OutreachLog>;
+  private contactNotes: Map<number, ContactNote>;
+  private shareableLandingPages: Map<number, ShareableLandingPage>;
+  private proposals: Map<number, Proposal>;
+  
+  private userId: number = 1;
+  private creatorId: number = 1;
+  private contactId: number = 1;
+  private contactListId: number = 1;
+  private contactListEntryId: number = 1;
+  private campaignId: number = 1;
+  private emailId: number = 1;
+  private proposalId: number = 1;
+  private emailAccountId: number = 1;
+  private creatorEmailAccountId: number = 1;
+  private emailTemplateId: number = 1;
+  private outreachLogId: number = 1;
+  private contactNoteId: number = 1;
+  private shareableLandingPageId: number = 1;
+
+  constructor() {
+    this.users = new Map();
+    this.creators = new Map();
+    this.contacts = new Map();
+    this.contactLists = new Map();
+    this.contactListEntries = new Map();
+    this.campaigns = new Map();
+    this.emails = new Map();
+    this.emailAccounts = new Map();
+    this.creatorEmailAccounts = new Map();
+    this.emailTemplates = new Map();
+    this.creatorPricing = new Map();
+    this.outreachLogs = new Map();
+    this.contactNotes = new Map();
+    this.shareableLandingPages = new Map();
+    this.proposals = new Map();
+    
+    // Initialize with sample data for development
+    this.initSampleData();
+  }
+
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.username === username
+    );
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = this.userId++;
+    const createdAt = new Date();
+    const user: User = { ...insertUser, id, createdAt };
+    this.users.set(id, user);
+    return user;
+  }
+
+  async updateUser(id: number, userData: Partial<User>): Promise<User> {
+    const user = await this.getUser(id);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    const updatedUser = { ...user, ...userData };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  async getFirstUser(): Promise<User | undefined> {
+    if (this.users.size > 0) {
+      return this.users.values().next().value;
+    }
+    return undefined;
+  }
+
+  // Creator operations
+  async getCreator(id: number): Promise<Creator | undefined> {
+    return this.creators.get(id);
+  }
+
+  async createCreator(insertCreator: InsertCreator): Promise<Creator> {
+    const id = this.creatorId++;
+    const lastUpdated = new Date();
+    const creator: Creator = { ...insertCreator, id, lastUpdated };
+    this.creators.set(id, creator);
+    return creator;
+  }
+
+  async updateCreator(id: number, creatorData: Partial<Creator>): Promise<Creator> {
+    const creator = await this.getCreator(id);
+    if (!creator) {
+      throw new Error("Creator not found");
+    }
+    
+    // Update the last updated timestamp
+    const lastUpdated = new Date();
+    const updatedCreator = { ...creator, ...creatorData, lastUpdated };
+    this.creators.set(id, updatedCreator);
+    return updatedCreator;
+  }
+
+  async deleteCreator(id: number): Promise<boolean> {
+    const creator = await this.getCreator(id);
+    if (!creator) {
+      return false; // Creator not found to delete
+    }
+    
+    // Delete the creator from the collection
+    return this.creators.delete(id);
+  }
+  
+  async getAllCreators(): Promise<Creator[]> {
+    return Array.from(this.creators.values());
+  }
+  
+  async getCreatorPricing(creatorId: number): Promise<CreatorPricing[]> {
+    try {
+      // In a real implementation, we would fetch from the creatorPricing table
+      // For now, we'll return example data based on the creator ID
+      
+      // Example pricing data structure for this creator
+      return [
+        {
+          id: 100 + creatorId,
+          creatorId,
+          contentType: 'youtube',
+          format: 'long_form',
+          basePrice: 5000,
+          usageRights: '30 days, brand channels only',
+          revisionLimit: 2,
+          deliveryTimeframe: 14,
+          exclusivity: true,
+          featured: true,
+          description: '10-15 minute dedicated product review'
+        },
+        {
+          id: 200 + creatorId,
+          creatorId,
+          contentType: 'youtube',
+          format: 'short_form',
+          basePrice: 3000,
+          usageRights: '14 days, brand social only',
+          revisionLimit: 1,
+          deliveryTimeframe: 7,
+          exclusivity: false,
+          featured: false,
+          description: '30-60 second dedicated product feature'
+        },
+        {
+          id: 300 + creatorId,
+          creatorId,
+          contentType: 'instagram',
+          format: 'post',
+          basePrice: 1200,
+          usageRights: '7 days, brand social only',
+          revisionLimit: 1,
+          deliveryTimeframe: 5,
+          exclusivity: false,
+          featured: false,
+          description: 'Product feature in grid post'
+        },
+        {
+          id: 400 + creatorId,
+          creatorId,
+          contentType: 'instagram',
+          format: 'reel',
+          basePrice: 2200,
+          usageRights: '14 days, brand social only',
+          revisionLimit: 1,
+          deliveryTimeframe: 7,
+          exclusivity: false,
+          featured: true,
+          description: '15-30 second dedicated product reel'
+        }
+      ];
+    } catch (error) {
+      console.error("Error fetching creator pricing:", error);
+      return [];
+    }
+  }
+          basePrice: 2200,
+          usageRights: '14 days, brand social only',
+          revisionLimit: 1,
+          deliveryTimeframe: 7,
+          exclusivity: false,
+          featured: true,
+          description: '15-30 second dedicated product reel'
+        }
+      ];
+    } catch (error) {
+      console.error(`Error fetching pricing for creator ${creatorId}:`, error);
+      return [];
+    }
+  }
+
+  // Contact operations
+  async getContact(id: number): Promise<Contact | undefined> {
+    return this.contacts.get(id);
+  }
+
+  async createContact(insertContact: InsertContact): Promise<Contact> {
+    const id = this.contactId++;
+    const now = new Date();
+    // Set default values for new fields
+    const contact: Contact = { 
+      ...insertContact, 
+      id,
+      createdAt: now,
+      updatedAt: now,
+      status: insertContact.status || 'active',
+      type: insertContact.type || 'Brand', // Ensure type is set with a default
+      tags: insertContact.tags || [],
+      archivedAt: null,
+    };
+    
+    // Debug logging for the newly created contact
+    console.log("Creating contact with TYPE:", contact.type);
+    this.contacts.set(id, contact);
+    return contact;
+  }
+
+  async updateContact(id: number, contactData: Partial<Contact>): Promise<Contact> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    
+    // Always update the updatedAt timestamp
+    const updatedContact = { 
+      ...contact, 
+      ...contactData, 
+      updatedAt: new Date() 
+    };
+    this.contacts.set(id, updatedContact);
+    return updatedContact;
+  }
+
+  async deleteContact(id: number): Promise<boolean> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      return false; // Contact not found to delete
+    }
+    
+    // Delete the contact from the collection
+    return this.contacts.delete(id);
+  }
+
+  async archiveContact(id: number): Promise<Contact> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    
+    // Set archive timestamp and update status
+    const archivedContact = { 
+      ...contact, 
+      archivedAt: new Date(),
+      status: 'archived',
+      updatedAt: new Date()
+    };
+    this.contacts.set(id, archivedContact);
+    return archivedContact;
+  }
+
+  async restoreContact(id: number): Promise<Contact> {
+    const contact = await this.getContact(id);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    
+    // Clear archived timestamp and set status back to active
+    const restoredContact = { 
+      ...contact, 
+      archivedAt: null,
+      status: 'active',
+      updatedAt: new Date()
+    };
+    this.contacts.set(id, restoredContact);
+    return restoredContact;
+  }
+
+  async getAllContacts(): Promise<Contact[]> {
+    // By default, only return non-archived contacts
+    return Array.from(this.contacts.values())
+      .filter(contact => !contact.archivedAt);
+  }
+  
+  async searchContacts(query: string): Promise<Contact[]> {
+    if (!query || query.trim() === '') {
+      return this.getAllContacts();
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    return Array.from(this.contacts.values())
+      .filter(contact => {
+        // Only include non-archived contacts by default
+        if (contact.archivedAt) return false;
+        
+        // Search in common fields
+        return (
+          (contact.firstName && contact.firstName.toLowerCase().includes(lowerQuery)) ||
+          (contact.lastName && contact.lastName.toLowerCase().includes(lowerQuery)) ||
+          (contact.email && contact.email.toLowerCase().includes(lowerQuery)) ||
+          (contact.company && contact.company.toLowerCase().includes(lowerQuery)) ||
+          (contact.role && contact.role.toLowerCase().includes(lowerQuery)) ||
+          (contact.industry && contact.industry.toLowerCase().includes(lowerQuery)) ||
+          (contact.country && contact.country.toLowerCase().includes(lowerQuery)) ||
+          (contact.notes && contact.notes.toLowerCase().includes(lowerQuery))
+        );
+      });
+  }
+  
+  async getFilteredContacts(filter: ContactFilterParams): Promise<Contact[]> {
+    return Array.from(this.contacts.values())
+      .filter(contact => {
+        // Handle archived filter
+        if (!filter.includeArchived && contact.archivedAt) {
+          return false;
+        }
+        
+        // Filter by status if specified
+        if (filter.status && contact.status !== filter.status) {
+          return false;
+        }
+        
+        // Filter by tags if specified
+        if (filter.tags && filter.tags.length > 0) {
+          // If contact has no tags or none of the filter tags match
+          if (!contact.tags || !contact.tags.some(tag => filter.tags!.includes(tag))) {
+            return false;
+          }
+        }
+        
+        // Filter by country if specified
+        if (filter.country && contact.country !== filter.country) {
+          return false;
+        }
+        
+        // Filter by industry if specified
+        if (filter.industry && contact.industry !== filter.industry) {
+          return false;
+        }
+        
+        // Filter by contact type if specified (Brand or Agency)
+        if (filter.type && contact.type !== filter.type) {
+          return false;
+        }
+        
+        // Filter by creation date range if specified
+        if (filter.createdAfter && contact.createdAt && 
+            new Date(contact.createdAt) < new Date(filter.createdAfter)) {
+          return false;
+        }
+        
+        if (filter.createdBefore && contact.createdAt && 
+            new Date(contact.createdAt) > new Date(filter.createdBefore)) {
+          return false;
+        }
+        
+        // Filter by last contacted date range if specified
+        if (filter.lastContactedAfter && contact.lastContacted && 
+            new Date(contact.lastContacted) < new Date(filter.lastContactedAfter)) {
+          return false;
+        }
+        
+        if (filter.lastContactedBefore && contact.lastContacted && 
+            new Date(contact.lastContacted) > new Date(filter.lastContactedBefore)) {
+          return false;
+        }
+        
+        // Apply text search if specified
+        if (filter.search && filter.search.trim() !== '') {
+          const searchLower = filter.search.toLowerCase();
+          const searchMatch = 
+            (contact.firstName && contact.firstName.toLowerCase().includes(searchLower)) ||
+            (contact.lastName && contact.lastName.toLowerCase().includes(searchLower)) ||
+            (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
+            (contact.company && contact.company.toLowerCase().includes(searchLower)) ||
+            (contact.role && contact.role.toLowerCase().includes(searchLower)) ||
+            (contact.notes && contact.notes.toLowerCase().includes(searchLower));
+            
+          if (!searchMatch) {
+            return false;
+          }
+        }
+        
+        // If passed all filters, include the contact
+        return true;
+      });
+  }
+
+  // Contact List operations
+  async getContactList(id: number): Promise<ContactList | undefined> {
+    return this.contactLists.get(id);
+  }
+
+  async createContactList(insertContactList: InsertContactList): Promise<ContactList> {
+    const id = this.contactListId++;
+    const createdAt = new Date();
+    const contactList: ContactList = { ...insertContactList, id, createdAt };
+    this.contactLists.set(id, contactList);
+    return contactList;
+  }
+
+  async getAllContactLists(): Promise<ContactList[]> {
+    return Array.from(this.contactLists.values());
+  }
+
+  async addContactToList(listId: number, contactId: number): Promise<ContactListEntry> {
+    const id = this.contactListEntryId++;
+    const entry: ContactListEntry = { id, contactListId: listId, contactId };
+    this.contactListEntries.set(id, entry);
+    return entry;
+  }
+
+  async getContactsInList(listId: number): Promise<Contact[]> {
+    const entries = Array.from(this.contactListEntries.values()).filter(
+      (entry) => entry.contactListId === listId
+    );
+    
+    const contacts = [];
+    for (const entry of entries) {
+      const contact = await this.getContact(entry.contactId);
+      if (contact) {
+        contacts.push(contact);
+      }
+    }
+    
+    return contacts;
+  }
+
+  // Campaign operations
+  async getCampaign(id: number): Promise<Campaign | undefined> {
+    return this.campaigns.get(id);
+  }
+
+  async createCampaign(insertCampaign: InsertCampaign): Promise<Campaign> {
+    const id = this.campaignId++;
+    const createdAt = new Date();
+    const campaign: Campaign = { 
+      ...insertCampaign, 
+      id,
+      createdAt, 
+      progress: 0,
+      openRate: null,
+      responseRate: null,
+      // Adding required fields with defaults if not provided
+      smartleadLastSync: null,
+      smartleadCampaignId: insertCampaign.smartleadCampaignId || null,
+      smartleadStatus: insertCampaign.smartleadStatus || null,
+      smartleadProvider: insertCampaign.smartleadProvider || "direct",
+      emailSequence: insertCampaign.emailSequence || []
+    };
+    this.campaigns.set(id, campaign);
+    return campaign;
+  }
+
+  async updateCampaign(id: number, campaignData: Partial<Campaign>): Promise<Campaign> {
+    const campaign = await this.getCampaign(id);
+    if (!campaign) {
+      throw new Error("Campaign not found");
+    }
+    
+    const updatedCampaign = { ...campaign, ...campaignData };
+    this.campaigns.set(id, updatedCampaign);
+    return updatedCampaign;
+  }
+
+  async deleteCampaign(id: number): Promise<boolean> {
+    const campaign = await this.getCampaign(id);
+    if (!campaign) {
+      return false; // Campaign not found to delete
+    }
+    
+    // Delete the campaign from the collection
+    return this.campaigns.delete(id);
+  }
+
+  async getAllCampaigns(): Promise<Campaign[]> {
+    return Array.from(this.campaigns.values());
+  }
+
+  async getRecentCampaigns(limit: number): Promise<Campaign[]> {
+    // Sort by creation date descending
+    const sorted = Array.from(this.campaigns.values()).sort(
+      (a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+    );
+    
+    return sorted.slice(0, limit);
+  }
+
+  // Email operations
+  async createEmail(insertEmail: InsertEmail): Promise<Email> {
+    const id = this.emailId++;
+    const email: Email = { ...insertEmail, id };
+    this.emails.set(id, email);
+    return email;
+  }
+
+  async getEmail(id: number): Promise<Email | undefined> {
+    return this.emails.get(id);
+  }
+
+  async updateEmail(id: number, emailData: Partial<Email>): Promise<Email> {
+    const email = await this.getEmail(id);
+    if (!email) {
+      throw new Error("Email not found");
+    }
+    
+    const updatedEmail = { ...email, ...emailData };
+    this.emails.set(id, updatedEmail);
+    return updatedEmail;
+  }
+
+  async getEmailsByCampaign(campaignId: number): Promise<Email[]> {
+    return Array.from(this.emails.values()).filter(
+      (email) => email.campaignId === campaignId
+    );
+  }
+
+  async getAllEmails(): Promise<Email[]> {
+    return Array.from(this.emails.values());
+  }
+
+  // Email Template operations
+  async getEmailTemplate(id: number): Promise<DbEmailTemplate | undefined> {
+    return this.emailTemplates.get(id);
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<DbEmailTemplate> {
+    const id = this.emailTemplateId++;
+    const now = new Date();
+    const emailTemplate: DbEmailTemplate = {
+      ...template,
+      id,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.emailTemplates.set(id, emailTemplate);
+    return emailTemplate;
+  }
+
+  async updateEmailTemplate(id: number, templateData: Partial<DbEmailTemplate>): Promise<DbEmailTemplate> {
+    const template = await this.getEmailTemplate(id);
+    if (!template) {
+      throw new Error("Email template not found");
+    }
+    
+    // Always update updatedAt timestamp
+    const updatedTemplate = {
+      ...template,
+      ...templateData,
+      updatedAt: new Date()
+    };
+    this.emailTemplates.set(id, updatedTemplate);
+    return updatedTemplate;
+  }
+
+  async deleteEmailTemplate(id: number): Promise<boolean> {
+    const template = await this.getEmailTemplate(id);
+    if (!template) {
+      return false;
+    }
+    
+    return this.emailTemplates.delete(id);
+  }
+
+  async getAllEmailTemplates(): Promise<DbEmailTemplate[]> {
+    return Array.from(this.emailTemplates.values());
+  }
+
+  async getEmailTemplatesByCreator(creatorId: number): Promise<DbEmailTemplate[]> {
+    return Array.from(this.emailTemplates.values())
+      .filter(template => template.creatorId === creatorId);
+  }
+
+  async getSystemEmailTemplates(): Promise<DbEmailTemplate[]> {
+    return Array.from(this.emailTemplates.values())
+      .filter(template => template.isSystem === true);
+  }
+  
+  // Outreach Log operations
+  async createOutreachLog(log: InsertOutreachLog): Promise<OutreachLog> {
+    const id = this.outreachLogId++;
+    const outreachLog: OutreachLog = { 
+      ...log, 
+      id 
+    };
+    this.outreachLogs.set(id, outreachLog);
+    return outreachLog;
+  }
+
+  async getOutreachLog(id: number): Promise<OutreachLog | undefined> {
+    return this.outreachLogs.get(id);
+  }
+
+  async getOutreachLogsByContactId(contactId: number): Promise<OutreachLog[]> {
+    return Array.from(this.outreachLogs.values()).filter(
+      log => log.contactId === contactId
+    );
+  }
+
+  // Maintain backward compatibility
+  async getOutreachLogsByContact(contactId: number): Promise<OutreachLog[]> {
+    return this.getOutreachLogsByContactId(contactId);
+  }
+
+  async getOutreachLogsByDateRange(startDate: Date, endDate: Date): Promise<OutreachLog[]> {
+    return Array.from(this.outreachLogs.values()).filter(
+      log => {
+        const logDate = new Date(log.sentAt);
+        return logDate >= startDate && logDate <= endDate;
+      }
+    );
+  }
+  
+  async getAllOutreachLogs(): Promise<OutreachLog[]> {
+    return Array.from(this.outreachLogs.values());
+  }
+
+  // Contact Note operations
+  async createContactNote(note: InsertContactNote): Promise<ContactNote> {
+    const id = this.contactNoteId++;
+    const createdAt = new Date();
+    const contactNote: ContactNote = { 
+      ...note, 
+      id,
+      createdAt 
+    };
+    this.contactNotes.set(id, contactNote);
+    return contactNote;
+  }
+
+  async getContactNote(id: number): Promise<ContactNote | undefined> {
+    return this.contactNotes.get(id);
+  }
+
+  async getContactNotes(contactId: number): Promise<ContactNote[]> {
+    return Array.from(this.contactNotes.values())
+      .filter(note => note.contactId === contactId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // Sort by most recent first
+  }
+  
+  async getContactNotesByContactId(contactId: number): Promise<ContactNote[]> {
+    return this.getContactNotes(contactId);
+  }
+  
+  // Shareable Landing Page operations
+  async createShareableLandingPage(page: InsertShareableLandingPage): Promise<ShareableLandingPage> {
+    const id = this.shareableLandingPageId++;
+    const now = new Date();
+    
+    // Generate a unique ID if one wasn't provided
+    const uniqueId = page.uniqueId || 
+      `page_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString(36)}`;
+    
+    const landingPage: ShareableLandingPage = {
+      ...page,
+      id,
+      uniqueId,
+      createdAt: now,
+      updatedAt: now,
+      viewCount: 0,
+    };
+    
+    this.shareableLandingPages.set(id, landingPage);
+    return landingPage;
+  }
+  
+  async getShareableLandingPage(id: number): Promise<ShareableLandingPage | undefined> {
+    return this.shareableLandingPages.get(id);
+  }
+  
+  async getShareableLandingPageByUniqueId(uniqueId: string): Promise<ShareableLandingPage | undefined> {
+    return Array.from(this.shareableLandingPages.values())
+      .find(page => page.uniqueId === uniqueId);
+  }
+  
+  async updateShareableLandingPage(id: number, pageData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage> {
+    const page = await this.getShareableLandingPage(id);
+    if (!page) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    const updatedPage = {
+      ...page,
+      ...pageData,
+      updatedAt: new Date(),
+    };
+    
+    this.shareableLandingPages.set(id, updatedPage);
+    return updatedPage;
+  }
+  
+  async deleteShareableLandingPage(id: number): Promise<boolean> {
+    const page = await this.getShareableLandingPage(id);
+    if (!page) {
+      return false;
+    }
+    
+    return this.shareableLandingPages.delete(id);
+  }
+  
+  async getAllShareableLandingPages(): Promise<ShareableLandingPage[]> {
+    return Array.from(this.shareableLandingPages.values());
+  }
+  
+  async getUserShareableLandingPages(userId: number): Promise<ShareableLandingPage[]> {
+    return Array.from(this.shareableLandingPages.values())
+      .filter(page => page.userId === userId);
+  }
+  
+  async getCreatorShareableLandingPages(creatorId: number): Promise<ShareableLandingPage[]> {
+    return Array.from(this.shareableLandingPages.values())
+      .filter(page => page.creatorId === creatorId);
+  }
+  
+  async incrementShareableLandingPageViewCount(id: number): Promise<ShareableLandingPage> {
+    const page = await this.getShareableLandingPage(id);
+    if (!page) {
+      throw new Error("Shareable landing page not found");
+    }
+    
+    const updatedPage = {
+      ...page,
+      viewCount: (page.viewCount || 0) + 1,
+      updatedAt: new Date(),
+    };
+    
+    this.shareableLandingPages.set(id, updatedPage);
+    return updatedPage;
+  }
+  
+  // Proposal operations
+  async getAllProposals(): Promise<Proposal[]> {
+    return Array.from(this.proposals.values());
+  }
+
+  async getProposal(id: number): Promise<Proposal | undefined> {
+    return this.proposals.get(id);
+  }
+
+  async createProposal(proposalData: InsertProposal): Promise<Proposal> {
+    const id = this.proposalId++;
+    const now = new Date();
+    
+    const proposal: Proposal = {
+      id,
+      createdAt: now,
+      updatedAt: now,
+      status: proposalData.status || "draft",
+      contactId: proposalData.contactId,
+      name: proposalData.name,
+      notes: proposalData.notes || null,
+      value: proposalData.value || null,
+      emailContent: proposalData.emailContent || null,
+      emailSubject: proposalData.emailSubject || null,
+      followUpDate: proposalData.followUpDate || null,
+      researchData: proposalData.researchData || null,
+      userId: proposalData.userId || null
+    };
+    
+    this.proposals.set(id, proposal);
+    return proposal;
+  }
+
+  async updateProposal(id: number, proposalData: Partial<Proposal>): Promise<Proposal | undefined> {
+    const proposal = this.proposals.get(id);
+    if (!proposal) {
+      return undefined;
+    }
+    
+    const updatedProposal = {
+      ...proposal,
+      ...proposalData,
+      updatedAt: new Date()
+    };
+    
+    this.proposals.set(id, updatedProposal);
+    return updatedProposal;
+  }
+
+  async deleteProposal(id: number): Promise<void> {
+    this.proposals.delete(id);
+  }
+  
+  async deleteEmail(id: number): Promise<boolean> {
+    const email = await this.getEmail(id);
+    if (!email) {
+      return false; // Email not found to delete
+    }
+    
+    // Delete the email from the collection
+    return this.emails.delete(id);
+  }
+
+  // Email Account operations
+  async getEmailAccount(id: number | string): Promise<EmailAccount | undefined> {
+    if (typeof id === 'string') {
+      // Handle string IDs like email addresses or external platform IDs
+      if (id.includes('@')) {
+        // If it's an email address, use dedicated method
+        return this.getEmailAccountByEmail(id);
+      }
+      
+      // Check if we can convert to a numeric ID
+      if (/^\d+$/.test(id)) {
+        return this.emailAccounts.get(parseInt(id));
+      }
+      
+      // If it's any other string ID, we need to search differently
+      // For memory storage, let's just check if any account has a notes field with this ID
+      const allAccounts = Array.from(this.emailAccounts.values());
+      return allAccounts.find(account => {
+        if (!account.notes) return false;
+        return account.notes.includes(`Former ID: ${id}`) || 
+               account.notes.includes(`ID: ${id}`);
+      });
+    }
+    
+    // Regular numeric ID lookup
+    return this.emailAccounts.get(id);
+  }
+  
+  /**
+   * Get email account by email address
+   * Implementation for in-memory storage
+   * 
+   * @param email The email address to look up
+   * @returns The email account or undefined if not found
+   */
+  async getEmailAccountByEmail(email: string): Promise<EmailAccount | undefined> {
+    // Search for an account with the matching email address
+    const allAccounts = Array.from(this.emailAccounts.values());
+    return allAccounts.find(account => account.email === email);
+  }
+
+  async createEmailAccount(insertEmailAccount: InsertEmailAccount): Promise<EmailAccount> {
+    const id = this.emailAccountId++;
+    const emailAccount: EmailAccount = { ...insertEmailAccount, id };
+    this.emailAccounts.set(id, emailAccount);
+    return emailAccount;
+  }
+
+  async updateEmailAccount(id: number, emailAccountData: Partial<EmailAccount>): Promise<EmailAccount> {
+    const emailAccount = await this.getEmailAccount(id);
+    if (!emailAccount) {
+      throw new Error("Email account not found");
+    }
+    
+    // Special handling for credentials - preserve them if not explicitly set
+    // SMTP password handling
+    if (emailAccountData.smtpPassword === undefined && emailAccount.smtpPassword) {
+      emailAccountData.smtpPassword = emailAccount.smtpPassword;
+    }
+    
+    // IMAP password handling
+    if (emailAccountData.imapPassword === undefined && emailAccount.imapPassword) {
+      emailAccountData.imapPassword = emailAccount.imapPassword;
+    }
+    
+    // Make sure required fields are preserved
+    if (!emailAccountData.status && emailAccount.status) {
+      emailAccountData.status = emailAccount.status;
+    }
+    
+    if (!emailAccountData.createdAt && emailAccount.createdAt) {
+      emailAccountData.createdAt = emailAccount.createdAt;
+    }
+    
+    // Create a deep copy to ensure no references are shared
+    const updatedEmailAccount = JSON.parse(JSON.stringify({ ...emailAccount, ...emailAccountData }));
+    
+    // Log what's being updated (mask sensitive data)
+    const logData = { ...updatedEmailAccount };
+    if (logData.smtpPassword) logData.smtpPassword = '***MASKED***';
+    if (logData.imapPassword) logData.imapPassword = '***MASKED***';
+    console.log(`Updating email account ${id}:`, logData);
+    
+    this.emailAccounts.set(id, updatedEmailAccount);
+    return updatedEmailAccount;
+  }
+
+  async getAllEmailAccounts(): Promise<EmailAccount[]> {
+    return Array.from(this.emailAccounts.values());
+  }
+  
+  async deleteEmailAccount(id: number): Promise<boolean> {
+    const account = await this.getEmailAccount(id);
+    if (!account) {
+      return false; // Account not found to delete
+    }
+    
+    // First, find and delete any creator-email associations for this account
+    const associations = Array.from(this.creatorEmailAccounts.values())
+      .filter(assoc => assoc.emailAccountId === id);
+      
+    // Delete each association
+    for (const assoc of associations) {
+      this.creatorEmailAccounts.delete(assoc.id);
+    }
+    
+    // Then delete the account itself
+    return this.emailAccounts.delete(id);
+  }
+
+  // Creator-Email Account associations
+  async linkCreatorToEmailAccount(association: InsertCreatorEmailAccount): Promise<CreatorEmailAccount> {
+    try {
+      console.log(`Linking account ${association.emailAccountId} to creator ${association.creatorId}, isPrimary: ${association.isPrimary}`);
+      
+      // First check if the creator and email account exist
+      const [creator] = await db.select().from(creators).where(eq(creators.id, association.creatorId));
+      if (!creator) {
+        throw new Error(`Creator with ID ${association.creatorId} not found`);
+      }
+      
+      const [emailAccount] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, association.emailAccountId));
+      if (!emailAccount) {
+        throw new Error(`Email account with ID ${association.emailAccountId} not found`);
+      }
+      
+      // Check if this association already exists
+      const [existingAssociation] = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(
+          and(
+            eq(creatorEmailAccounts.creatorId, association.creatorId),
+            eq(creatorEmailAccounts.emailAccountId, association.emailAccountId)
+          )
+        );
+      
+      if (existingAssociation) {
+        // Update the existing association instead of creating a new one
+        const [updatedAssociation] = await db
+          .update(creatorEmailAccounts)
+          .set({
+            isPrimary: association.isPrimary
+          })
+          .where(eq(creatorEmailAccounts.id, existingAssociation.id))
+          .returning();
+        
+        return updatedAssociation;
+      }
+      
+      // Create the association
+      const [creatorEmailAccount] = await db
+        .insert(creatorEmailAccounts)
+        .values({
+          ...association,
+          createdAt: new Date()
+        })
+        .returning();
+      
+      return creatorEmailAccount;
+    } catch (error) {
+      console.error('Failed to link email account:', error);
+      throw error;
+    }
+  }
+
+  async getCreatorEmailAccounts(creatorId: number): Promise<EmailAccount[]> {
+    try {
+      // Get all association records for this creator
+      const associations = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.creatorId, creatorId));
+      
+      if (associations.length === 0) {
+        return [];
+      }
+      
+      // Get all email accounts in a single query
+      const emails = await db
+        .select()
+        .from(emailAccounts)
+        .where(inArray(
+          emailAccounts.id, 
+          associations.map(assoc => assoc.emailAccountId)
+        ));
+      
+      return emails;
+    } catch (error) {
+      console.error(`Failed to get creator email accounts for creator ${creatorId}:`, error);
+      return [];
+    }
+  }
+
+  async getPrimaryEmailAccountForCreator(creatorId: number): Promise<EmailAccount | undefined> {
+    try {
+      // First find the primary association
+      const [primaryAssociation] = await db
+        .select()
+        .from(creatorEmailAccounts)
+        .where(
+          and(
+            eq(creatorEmailAccounts.creatorId, creatorId),
+            eq(creatorEmailAccounts.isPrimary, true)
+          )
+        );
+      
+      if (!primaryAssociation) {
+        return undefined;
+      }
+      
+      // Then get the account details
+      const [account] = await db
+        .select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, primaryAssociation.emailAccountId));
+      
+      return account;
+    } catch (error) {
+      console.error(`Failed to get primary email account for creator ${creatorId}:`, error);
+      return undefined;
+    }
+  }
+  
+  async getCreatorEmailAccountAssociations(): Promise<CreatorEmailAccount[]> {
+    try {
+      return await db.select().from(creatorEmailAccounts);
+    } catch (error) {
+      console.error('Failed to get creator email account associations:', error);
+      return [];
+    }
+  }
+  
+  async deleteCreatorEmailAccount(id: number): Promise<boolean> {
+    try {
+      const result = await db
+        .delete(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.id, id));
+      
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (error) {
+      console.error(`Failed to delete creator email account association ${id}:`, error);
+      return false;
+    }
+  }
+
+  // Sample data initialization for development purposes
+  private async initSampleData() {
+    try {
+      // First check if we already have sample data
+      const [existingUser] = await db.select().from(users).where(eq(users.username, "john.doe"));
+      if (existingUser) {
+        console.log("Sample data already exists, skipping initialization");
+        return;
+      }
+
+      console.log("Initializing sample data...");
+      
+      // Sample user
+      const user = await this.createUser({
+        username: "john.doe",
+        password: "password123", // Would be hashed in production
+        fullName: "John Doe",
+        email: "john@example.com"
+      });
+      
+      console.log("Sample data initialization completed successfully");
+      
+    } catch (error) {
+      console.error("Error initializing sample data:", error);
+      // We'll continue even if sample data initialization fails
+      // to avoid crashing the application
+    }
+    
+    // Always add essential creators to memory storage for fallback
+    this.initEssentialCreators();
+  }
+  
+  // Initialize essential creators in memory storage as fallback
+  private initEssentialCreators() {
+    // Add Patrick Israel creator for fallback
+    const patrick: Creator = {
+      id: 1,
+      name: "Patrick Israel",
+      role: "test",
+      bio: "test",
+      brandVoice: "test",
+      profileColor: "#4F46E5",
+      initials: "PI",
+      googleDriveFolder: "",
+      pillarUrl: "https://pillar.io/tylerblanchard",
+      demographicsUrl: null,
+      lastUpdated: new Date(),
+      userId: 1
+    };
+    
+    // Add creator to memory storage
+    this.creators.set(patrick.id, patrick);
+    
+    // First check if a patrick@xtendtalent.com account already exists
+    let existingXtendAccount = Array.from(this.emailAccounts.values()).find(
+      account => account.email === "patrick@xtendtalent.com"
+    );
+    
+    // Add test email account (default account)
+    const testEmailAccount: EmailAccount = {
+      id: 35,
+      email: "test@gmail.com",
+      name: "Test Gmail",
+      provider: "gmail",
+      status: "active",
+      createdAt: new Date(),
+      userId: 1,
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 587,
+      smtpUsername: "test@gmail.com",
+      smtpPassword: "app-password",
+      smtpSecure: true,
+      dailyLimit: 100,
+      warmupEnabled: false,
+      warmupInProgress: false,
+      hourlyLimit: 10,
+      lastUsedAt: null,
+      lastRotationUsedAt: null,
+      sendingMetrics: null,
+      connectionStatus: "connected",
+      connectionLastChecked: new Date(),
+      deliverabilityScore: 95,
+      bounceRate: 0,
+      spamRate: 0,
+      openRate: 90,
+      dailySentCount: 0,
+      hourlySentCount: 0,
+      cooldownUntil: null,
+      lastErrorMessage: null,
+      lastErrorCode: null,
+      lastErrorTime: null,
+      lastSuccessTime: new Date(),
+      ipAddress: null,
+      domain: "gmail.com",
+      dkimConfigured: true,
+      spfConfigured: true,
+      dmarcConfigured: true,
+      notes: "Test account",
+      testModeOnly: true
+    };
+    
+    // Add Patrick's real email account with testModeOnly set to false
+    const patrickRealAccount: EmailAccount = {
+      id: 36,
+      email: "patrick@xtendtalent.com",
+      name: "Patrick Israel",
+      provider: "gmail",
+      status: "active",
+      createdAt: new Date(),
+      userId: 1,
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 587,
+      smtpUsername: "patrick@xtendtalent.com",
+      smtpPassword: "app-password", // This will need to be updated with the real app password
+      smtpSecure: true,
+      dailyLimit: 100,
+      warmupEnabled: false,
+      warmupInProgress: false,
+      hourlyLimit: 20,
+      lastUsedAt: null,
+      lastRotationUsedAt: null,
+      sendingMetrics: null,
+      connectionStatus: "connected",
+      connectionLastChecked: new Date(),
+      deliverabilityScore: 95,
+      bounceRate: 0,
+      spamRate: 0,
+      openRate: 90,
+      dailySentCount: 0,
+      hourlySentCount: 0,
+      cooldownUntil: null,
+      lastErrorMessage: null,
+      lastErrorCode: null,
+      lastErrorTime: null,
+      lastSuccessTime: new Date(),
+      ipAddress: null,
+      domain: "xtendtalent.com",
+      dkimConfigured: true,
+      spfConfigured: true,
+      dmarcConfigured: true,
+      notes: "Patrick's live account",
+      testModeOnly: false
+    };
+    
+    // Set the email account IDs to ensure they don't conflict
+    if (this.emailAccountId <= testEmailAccount.id) {
+      this.emailAccountId = testEmailAccount.id + 1;
+    }
+    
+    if (this.emailAccountId <= patrickRealAccount.id) {
+      this.emailAccountId = patrickRealAccount.id + 1;
+    }
+    
+    // Add both accounts to the storage
+    this.emailAccounts.set(testEmailAccount.id, testEmailAccount);
+    this.emailAccounts.set(patrickRealAccount.id, patrickRealAccount);
+    
+    // Associate Patrick with test email account
+    const testEmailAssociation: CreatorEmailAccount = {
+      id: 1,
+      creatorId: patrick.id,
+      emailAccountId: testEmailAccount.id,
+      isPrimary: false,
+      createdAt: new Date()
+    };
+    
+    // Associate Patrick with his real email account (as primary)
+    const realEmailAssociation: CreatorEmailAccount = {
+      id: 2,
+      creatorId: patrick.id,
+      emailAccountId: patrickRealAccount.id,
+      isPrimary: true,
+      createdAt: new Date()
+    };
+    
+    // Set the creator email account ID to ensure it doesn't conflict
+    if (this.creatorEmailAccountId <= realEmailAssociation.id) {
+      this.creatorEmailAccountId = realEmailAssociation.id + 1;
+    }
+    
+    this.creatorEmailAccounts.set(testEmailAssociation.id, testEmailAssociation);
+    this.creatorEmailAccounts.set(realEmailAssociation.id, realEmailAssociation);
+    
+    console.log("Essential creator fallback data initialized");
+  }
+}
+
+// Create a shared instance of MemStorage to maintain state
+const sharedMemStorage = new MemStorage();
+
+export class DatabaseStorage implements IStorage {
+  private memStorage: MemStorage;
+
+  constructor(memStorage?: MemStorage) {
+    // Use the provided memStorage or create a new one if none is provided
+    this.memStorage = memStorage || new MemStorage();
+  }
+
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    return this.memStorage.getUser(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.memStorage.getUserByUsername(username);
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    return this.memStorage.createUser(user);
+  }
+
+  async updateUser(id: number, userData: Partial<User>): Promise<User> {
+    return this.memStorage.updateUser(id, userData);
+  }
+
+  async getFirstUser(): Promise<User | undefined> {
+    return this.memStorage.getFirstUser();
+  }
+
+  // Creator operations
+  async getCreator(id: number): Promise<Creator | undefined> {
+    try {
+      const [creator] = await db.select().from(creators).where(eq(creators.id, id));
+      return creator;
+    } catch (error) {
+      console.error("Error getting creator:", error);
+      return this.memStorage.getCreator(id);
+    }
+  }
+
+  async createCreator(creator: InsertCreator): Promise<Creator> {
+    try {
+      console.log("Creating creator in database:", creator);
+      const [newCreator] = await db.insert(creators)
+        .values({
+          ...creator,
+          lastUpdated: new Date()
+        })
+        .returning();
+      console.log("Creator created in database:", newCreator);
+      return newCreator;
+    } catch (error) {
+      console.error("Error creating creator in database:", error);
+      return this.memStorage.createCreator(creator);
+    }
+  }
+
+  async updateCreator(id: number, creatorData: Partial<Creator>): Promise<Creator> {
+    try {
+      const [updatedCreator] = await db.update(creators)
+        .set({
+          ...creatorData,
+          lastUpdated: new Date()
+        })
+        .where(eq(creators.id, id))
+        .returning();
+      
+      if (!updatedCreator) {
+        throw new Error("Creator not found");
+      }
+      
+      return updatedCreator;
+    } catch (error) {
+      console.error("Error updating creator:", error);
+      return this.memStorage.updateCreator(id, creatorData);
+    }
+  }
+
+  async deleteCreator(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(creators)
+        .where(eq(creators.id, id))
+        .returning();
+      
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error deleting creator:", error);
+      return this.memStorage.deleteCreator(id);
+    }
+  }
+
+  async getAllCreators(): Promise<Creator[]> {
+    try {
+      return await db.select().from(creators).orderBy(desc(creators.lastUpdated));
+    } catch (error) {
+      console.error("Error getting all creators:", error);
+      return this.memStorage.getAllCreators();
+    }
+  }
+
+  // Contact operations
+  async getContact(id: number): Promise<Contact | undefined> {
+    return this.memStorage.getContact(id);
+  }
+
+  async createContact(contact: InsertContact): Promise<Contact> {
+    return this.memStorage.createContact(contact);
+  }
+
+  async updateContact(id: number, contactData: Partial<Contact>): Promise<Contact> {
+    return this.memStorage.updateContact(id, contactData);
+  }
+
+  async deleteContact(id: number): Promise<boolean> {
+    return this.memStorage.deleteContact(id);
+  }
+
+  async archiveContact(id: number): Promise<Contact> {
+    return this.memStorage.archiveContact(id);
+  }
+
+  async restoreContact(id: number): Promise<Contact> {
+    return this.memStorage.restoreContact(id);
+  }
+
+  async getAllContacts(): Promise<Contact[]> {
+    return this.memStorage.getAllContacts();
+  }
+
+  async searchContacts(query: string): Promise<Contact[]> {
+    return this.memStorage.searchContacts(query);
+  }
+
+  async getFilteredContacts(filter: ContactFilterParams): Promise<Contact[]> {
+    return this.memStorage.getFilteredContacts(filter);
+  }
+
+  // Contact List operations
+  async getContactList(id: number): Promise<ContactList | undefined> {
+    return this.memStorage.getContactList(id);
+  }
+
+  async createContactList(contactList: InsertContactList): Promise<ContactList> {
+    return this.memStorage.createContactList(contactList);
+  }
+
+  async getAllContactLists(): Promise<ContactList[]> {
+    return this.memStorage.getAllContactLists();
+  }
+
+  async addContactToList(listId: number, contactId: number): Promise<ContactListEntry> {
+    return this.memStorage.addContactToList(listId, contactId);
+  }
+
+  async getContactsInList(listId: number): Promise<Contact[]> {
+    return this.memStorage.getContactsInList(listId);
+  }
+
+  // Campaign operations
+  async getCampaign(id: number): Promise<Campaign | undefined> {
+    return this.memStorage.getCampaign(id);
+  }
+
+  async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
+    return this.memStorage.createCampaign(campaign);
+  }
+
+  async updateCampaign(id: number, campaignData: Partial<Campaign>): Promise<Campaign> {
+    return this.memStorage.updateCampaign(id, campaignData);
+  }
+
+  async deleteCampaign(id: number): Promise<boolean> {
+    return this.memStorage.deleteCampaign(id);
+  }
+
+  async getAllCampaigns(): Promise<Campaign[]> {
+    return this.memStorage.getAllCampaigns();
+  }
+
+  async getRecentCampaigns(limit: number): Promise<Campaign[]> {
+    return this.memStorage.getRecentCampaigns(limit);
+  }
+
+  // Email Account operations - Using database directly
+  async getEmailAccount(id: number | string): Promise<EmailAccount | undefined> {
+    try {
+      if (typeof id === 'string') {
+        // Check if this is an email address
+        if (id.includes('@')) {
+          // This is an email address, use dedicated method
+          return this.getEmailAccountByEmail(id);
+        }
+        
+        // First check if this is a numeric string that can be converted to a number
+        if (/^\d+$/.test(id) && id.length < 10) {
+          // Looks like a regular database ID
+          const numericId = parseInt(id);
+          const [account] = await db.select()
+            .from(emailAccounts)
+            .where(eq(emailAccounts.id, numericId));
+          return account;
+        } else {
+          // This might be a former external ID
+          console.log(`Looking for email account by former external ID: ${id}`);
+          
+          // Check if we have a note field with this former ID
+          const accounts = await db.select()
+            .from(emailAccounts)
+            .where(sql`${emailAccounts.notes} LIKE ${'%Former ID: ' + id + '%'}`);
+            
+          if (accounts.length > 0) {
+            console.log(`Found email account with former external ID ${id} in notes: ${accounts[0].email}`);
+            return accounts[0];
+          }
+          
+          return undefined;
+        }
+      } else {
+        // Regular numeric ID lookup
+        const [account] = await db.select()
+          .from(emailAccounts)
+          .where(eq(emailAccounts.id, id));
+        return account;
+      }
+    } catch (error) {
+      console.error("Error getting email account:", error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get email account by email address
+   * 
+   * @param email The email address to look up
+   * @returns The email account or undefined if not found
+   */
+  async getEmailAccountByEmail(email: string): Promise<EmailAccount | undefined> {
+    try {
+      console.log(`Looking up email account by email address: ${email}`);
+      
+      // Lookup by exact email match
+      const [account] = await db.select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.email, email));
+      
+      if (account) {
+        console.log(`Found email account for ${email} with ID: ${account.id}`);
+        return account;
+      }
+      
+      console.log(`No email account found for ${email}`);
+      return undefined;
+    } catch (error) {
+      console.error(`Error getting email account by email (${email}):`, error);
+      throw error;
+    }
+  }
+
+  async createEmailAccount(emailAccount: InsertEmailAccount): Promise<EmailAccount> {
+    try {
+      console.log("Creating email account in database");
+      const [account] = await db.insert(emailAccounts)
+        .values(emailAccount)
+        .returning();
+      console.log("Created email account:", account);
+      return account;
+    } catch (error) {
+      console.error("Error creating email account:", error);
+      throw error;
+    }
+  }
+
+  async updateEmailAccount(id: number, emailAccountData: Partial<EmailAccount>): Promise<EmailAccount> {
+    try {
+      // First get the current account
+      const [currentAccount] = await db.select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, id));
+      
+      if (!currentAccount) {
+        throw new Error("Email account not found");
+      }
+      
+      console.log("Updating email account in database, id:", id);
+      
+      // For password field, only update if a new one is provided
+      // This allows updating other fields without changing the password
+      const updateData: any = { ...emailAccountData };
+      
+      // If password is empty or undefined, use the existing one
+      if (!updateData.smtpPassword) {
+        delete updateData.smtpPassword;
+      }
+
+      // Convert createdAt to Date object if it's a string
+      if (updateData.createdAt && typeof updateData.createdAt === 'string') {
+        updateData.createdAt = new Date(updateData.createdAt);
+      }
+      
+      // Add updatedAt if not present
+      updateData.updatedAt = new Date();
+
+      const [updatedAccount] = await db.update(emailAccounts)
+        .set(updateData)
+        .where(eq(emailAccounts.id, id))
+        .returning();
+      
+      console.log("Updated email account:", updatedAccount);
+      return updatedAccount;
+    } catch (error) {
+      console.error("Error updating email account:", error);
+      throw error;
+    }
+  }
+
+  async deleteEmailAccount(id: number): Promise<boolean> {
+    try {
+      // First check if account exists
+      const [account] = await db.select()
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, id));
+      
+      if (!account) {
+        return false; // Account not found
+      }
+      
+      // Delete the account
+      const result = await db.delete(emailAccounts)
+        .where(eq(emailAccounts.id, id));
+      
+      return true;
+    } catch (error) {
+      console.error("Error deleting email account:", error);
+      return false;
+    }
+  }
+
+  async getAllEmailAccounts(): Promise<EmailAccount[]> {
+    try {
+      console.log('Getting all email accounts from database');
+      const accounts = await db.select().from(emailAccounts);
+      console.log(`Found ${accounts.length} email accounts in database`);
+      return accounts;
+    } catch (error) {
+      console.error("Error getting all email accounts:", error);
+      throw error;
+    }
+  }
+
+  // Creator-Email Account associations - Using database directly
+  async linkCreatorToEmailAccount(association: InsertCreatorEmailAccount): Promise<CreatorEmailAccount> {
+    try {
+      // Add missing createdAt field
+      const insertData = {
+        ...association,
+        createdAt: new Date()
+      };
+      
+      console.log(`Linking creator ${association.creatorId} to email account ${association.emailAccountId}`);
+      
+      // If this is a primary account, we need to update any existing primary accounts
+      if (association.isPrimary) {
+        console.log("This is a primary account. Checking for existing primary accounts...");
+        
+        // First, get any existing primary accounts for this creator
+        const existingPrimary = await db.select()
+          .from(creatorEmailAccounts)
+          .where(
+            and(
+              eq(creatorEmailAccounts.creatorId, association.creatorId),
+              eq(creatorEmailAccounts.isPrimary, true)
+            )
+          );
+        
+        console.log(`Found ${existingPrimary.length} existing primary accounts`);
+        
+        // Update any existing primary accounts to not be primary
+        if (existingPrimary.length > 0) {
+          console.log("Updating existing primary accounts to not be primary");
+          await db.update(creatorEmailAccounts)
+            .set({ isPrimary: false })
+            .where(
+              and(
+                eq(creatorEmailAccounts.creatorId, association.creatorId),
+                eq(creatorEmailAccounts.isPrimary, true)
+              )
+            );
+        }
+      }
+      
+      // Now insert the new association
+      const [result] = await db.insert(creatorEmailAccounts)
+        .values(insertData)
+        .returning();
+      
+      console.log("Creator-email account link created:", result);
+      return result;
+    } catch (error) {
+      console.error("Error linking creator to email account:", error);
+      throw error;
+    }
+  }
+
+  async getCreatorEmailAccounts(creatorId: number): Promise<EmailAccount[]> {
+    try {
+      console.log(`Getting email accounts for creator ${creatorId} from database`);
+      
+      // Join creatorEmailAccounts with emailAccounts to get full account details
+      const accounts = await db.select({
+        account: emailAccounts
+      })
+      .from(creatorEmailAccounts)
+      .innerJoin(
+        emailAccounts,
+        eq(creatorEmailAccounts.emailAccountId, emailAccounts.id)
+      )
+      .where(eq(creatorEmailAccounts.creatorId, creatorId));
+      
+      // Extract the account data from the joined result
+      const result = accounts.map(item => item.account);
+      console.log(`Found ${result.length} email accounts for creator ${creatorId}`);
+      
+      return result;
+    } catch (error) {
+      console.error("Error getting creator email accounts:", error);
+      return [];
+    }
+  }
+
+  async getPrimaryEmailAccountForCreator(creatorId: number): Promise<EmailAccount | undefined> {
+    try {
+      console.log(`Getting primary email account for creator ${creatorId} from database`);
+      
+      // Join creatorEmailAccounts with emailAccounts to get the primary account
+      const [result] = await db.select({
+        account: emailAccounts
+      })
+      .from(creatorEmailAccounts)
+      .innerJoin(
+        emailAccounts,
+        eq(creatorEmailAccounts.emailAccountId, emailAccounts.id)
+      )
+      .where(
+        and(
+          eq(creatorEmailAccounts.creatorId, creatorId),
+          eq(creatorEmailAccounts.isPrimary, true)
+        )
+      );
+      
+      if (result) {
+        console.log(`Found primary email account for creator ${creatorId}`);
+        return result.account;
+      } else {
+        console.log(`No primary email account found for creator ${creatorId}`);
+        return undefined;
+      }
+    } catch (error) {
+      console.error("Error getting primary email account for creator:", error);
+      return undefined;
+    }
+  }
+
+  async getCreatorEmailAccountAssociations(): Promise<CreatorEmailAccount[]> {
+    try {
+      const associations = await db.select().from(creatorEmailAccounts);
+      return associations;
+    } catch (error) {
+      console.error("Error getting creator-email account associations:", error);
+      return [];
+    }
+  }
+
+  async deleteCreatorEmailAccount(id: number): Promise<boolean> {
+    try {
+      // First check if association exists
+      const [association] = await db.select()
+        .from(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.id, id));
+      
+      if (!association) {
+        return false; // Association not found
+      }
+      
+      // Delete the association
+      await db.delete(creatorEmailAccounts)
+        .where(eq(creatorEmailAccounts.id, id));
+      
+      return true;
+    } catch (error) {
+      console.error("Error deleting creator-email account association:", error);
+      return false;
+    }
+  }
+
+  // Email operations
+  async createEmail(email: InsertEmail): Promise<Email> {
+    return this.memStorage.createEmail(email);
+  }
+
+  async getEmail(id: number): Promise<Email | undefined> {
+    return this.memStorage.getEmail(id);
+  }
+
+  async updateEmail(id: number, emailData: Partial<Email>): Promise<Email> {
+    return this.memStorage.updateEmail(id, emailData);
+  }
+
+  async deleteEmail(id: number): Promise<boolean> {
+    return this.memStorage.deleteEmail(id);
+  }
+
+  async getEmailsByCampaign(campaignId: number): Promise<Email[]> {
+    return this.memStorage.getEmailsByCampaign(campaignId);
+  }
+
+  async getAllEmails(): Promise<Email[]> {
+    return this.memStorage.getAllEmails();
+  }
+
+  // Email Template operations
+  async getEmailTemplate(id: number): Promise<DbEmailTemplate | undefined> {
+    return this.memStorage.getEmailTemplate(id);
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<DbEmailTemplate> {
+    return this.memStorage.createEmailTemplate(template);
+  }
+
+  async updateEmailTemplate(id: number, templateData: Partial<DbEmailTemplate>): Promise<DbEmailTemplate> {
+    return this.memStorage.updateEmailTemplate(id, templateData);
+  }
+
+  async deleteEmailTemplate(id: number): Promise<boolean> {
+    return this.memStorage.deleteEmailTemplate(id);
+  }
+
+  async getAllEmailTemplates(): Promise<DbEmailTemplate[]> {
+    return this.memStorage.getAllEmailTemplates();
+  }
+
+  async getEmailTemplatesByCreator(creatorId: number): Promise<DbEmailTemplate[]> {
+    return this.memStorage.getEmailTemplatesByCreator(creatorId);
+  }
+
+  async getSystemEmailTemplates(): Promise<DbEmailTemplate[]> {
+    return this.memStorage.getSystemEmailTemplates();
+  }
+
+  // Outreach Log operations
+  async createOutreachLog(log: InsertOutreachLog): Promise<OutreachLog> {
+    return this.memStorage.createOutreachLog(log);
+  }
+
+  async getOutreachLog(id: number): Promise<OutreachLog | undefined> {
+    return this.memStorage.getOutreachLog(id);
+  }
+
+  async getOutreachLogsByContactId(contactId: number): Promise<OutreachLog[]> {
+    return this.memStorage.getOutreachLogsByContactId(contactId);
+  }
+
+  async getOutreachLogsByDateRange(startDate: Date, endDate: Date): Promise<OutreachLog[]> {
+    return this.memStorage.getOutreachLogsByDateRange(startDate, endDate);
+  }
+
+  async getAllOutreachLogs(): Promise<OutreachLog[]> {
+    return this.memStorage.getAllOutreachLogs();
+  }
+
+  // Contact Note operations
+  async createContactNote(note: InsertContactNote): Promise<ContactNote> {
+    return this.memStorage.createContactNote(note);
+  }
+
+  async getContactNote(id: number): Promise<ContactNote | undefined> {
+    return this.memStorage.getContactNote(id);
+  }
+
+  async getContactNotes(contactId: number): Promise<ContactNote[]> {
+    return this.memStorage.getContactNotes(contactId);
+  }
+
+  async getContactNotesByContactId(contactId: number): Promise<ContactNote[]> {
+    return this.memStorage.getContactNotesByContactId(contactId);
+  }
+
+  // Shareable Landing Page operations
+  async createShareableLandingPage(page: InsertShareableLandingPage): Promise<ShareableLandingPage> {
+    return this.memStorage.createShareableLandingPage(page);
+  }
+
+  async getShareableLandingPage(id: number): Promise<ShareableLandingPage | undefined> {
+    return this.memStorage.getShareableLandingPage(id);
+  }
+
+  async getShareableLandingPageByUniqueId(uniqueId: string): Promise<ShareableLandingPage | undefined> {
+    return this.memStorage.getShareableLandingPageByUniqueId(uniqueId);
+  }
+
+  async updateShareableLandingPage(id: number, pageData: Partial<ShareableLandingPage>): Promise<ShareableLandingPage> {
+    return this.memStorage.updateShareableLandingPage(id, pageData);
+  }
+
+  async deleteShareableLandingPage(id: number): Promise<boolean> {
+    return this.memStorage.deleteShareableLandingPage(id);
+  }
+
+  async getAllShareableLandingPages(): Promise<ShareableLandingPage[]> {
+    return this.memStorage.getAllShareableLandingPages();
+  }
+
+  async getUserShareableLandingPages(userId: number): Promise<ShareableLandingPage[]> {
+    return this.memStorage.getUserShareableLandingPages(userId);
+  }
+
+  async getCreatorShareableLandingPages(creatorId: number): Promise<ShareableLandingPage[]> {
+    return this.memStorage.getCreatorShareableLandingPages(creatorId);
+  }
+
+  async incrementShareableLandingPageViewCount(id: number): Promise<ShareableLandingPage> {
+    return this.memStorage.incrementShareableLandingPageViewCount(id);
+  }
+
+  // Proposal operations
+  async getAllProposals(): Promise<Proposal[]> {
+    return this.memStorage.getAllProposals();
+  }
+
+  async getProposal(id: number): Promise<Proposal | undefined> {
+    return this.memStorage.getProposal(id);
+  }
+
+  async createProposal(proposal: InsertProposal): Promise<Proposal> {
+    return this.memStorage.createProposal(proposal);
+  }
+
+  async updateProposal(id: number, proposalData: Partial<Proposal>): Promise<Proposal | undefined> {
+    return this.memStorage.updateProposal(id, proposalData);
+  }
+
+  async deleteProposal(id: number): Promise<void> {
+    return this.memStorage.deleteProposal(id);
+  }
+}
+
+// Export the storage instance
+export const storage = new DatabaseStorage(sharedMemStorage);

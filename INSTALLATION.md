@@ -1,4 +1,4 @@
-# Xtend Outreach Platform
+# Xtend Creators - O.S.
 
 ## Installation
 
@@ -15,14 +15,6 @@ To set up the database:
 2. Run `npm run db:push` to create all database tables
 3. Run `node setup-database-tables.js` to initialize basic data
 
-## Email Account Setup
-
-For email functionality:
-
-1. Go to Email Accounts section in the platform
-2. Add your SMTP email accounts
-3. For Gmail accounts with 2FA, follow the App Password setup guide
-
 ## Contact Import
 
 To import your contacts:
@@ -33,3 +25,13 @@ To import your contacts:
 ## Documentation
 
 Refer to the docs directory for detailed documentation.
+
+# Database Configuration
+DATABASE_URL="postgresql://username:password@localhost:5432/your_database"
+
+# Security
+JWT_SECRET="your-secure-secret-key"
+
+# Server Configuration
+PORT=3000
+NODE_ENV="development"

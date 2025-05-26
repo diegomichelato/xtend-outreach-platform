@@ -21,6 +21,9 @@ import {
   createTrackingLog,
   processEmailForTracking,
 } from './enhancedEmailService';
+import type { SentMessageInfo, Envelope } from 'nodemailer';
+import type { Address } from 'nodemailer/lib/mailer';
+import type { Envelope as MimeNodeEnvelope } from 'nodemailer/lib/mime-node';
 
 // Set to true to force using mock email for development/testing
 // Can be overridden by setting ENABLE_REAL_EMAILS=true environment variable
@@ -29,6 +32,49 @@ const FORCE_MOCK_EMAIL = false; // Always send real emails
 
 // Set timeout for SMTP connections
 const SMTP_TIMEOUT = 30000; // 30 seconds
+
+// Default system email configuration
+const DEFAULT_SYSTEM_EMAIL = 'info@xtend.company';
+const DEFAULT_SYSTEM_NAME = 'Xtend Creators';
+
+// Cache for the system email account
+let systemEmailAccount: EmailAccount | null = null;
+
+// Type for test transport info
+interface TestTransportInfo {
+  messageId: string;
+  envelope: {
+    from: string;
+    to: string | string[];
+  };
+  accepted: string[];
+  rejected: string[];
+  pending: string[];
+  response: string;
+}
+
+/**
+ * Get the system email account configuration
+ * This is used for all automated system communications
+ */
+async function getSystemEmailAccount(): Promise<EmailAccount | null> {
+  if (systemEmailAccount) {
+    return systemEmailAccount;
+  }
+
+  try {
+    const account = await storage.getEmailAccountByEmail(DEFAULT_SYSTEM_EMAIL);
+    if (account) {
+      systemEmailAccount = account;
+      return account;
+    }
+    console.error(`System email account ${DEFAULT_SYSTEM_EMAIL} not found`);
+    return null;
+  } catch (error) {
+    console.error('Error fetching system email account:', error);
+    return null;
+  }
+}
 
 /**
  * Interface for email sending request
@@ -1394,4 +1440,22 @@ export async function scheduleEmail(
       error: error.message || 'Unknown error occurred while scheduling email'
     };
   }
+}
+
+/**
+ * Send a system email using the default system account
+ */
+export async function sendSystemEmail(request: SendEmailRequest): Promise<SendEmailResponse> {
+  const systemAccount = await getSystemEmailAccount();
+  if (!systemAccount) {
+    throw new Error('System email account not configured');
+  }
+
+  return sendEmail(systemAccount.id, {
+    ...request,
+    from: {
+      name: DEFAULT_SYSTEM_NAME,
+      address: DEFAULT_SYSTEM_EMAIL
+    }
+  });
 }
